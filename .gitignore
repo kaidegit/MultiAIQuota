@@ -34,10 +34,6 @@ hw_monitor/www/
 # Live integration test config (contains real API keys)
 tests/live_config.json
 
-# Third-party sources: clone or add as submodules separately
-third_party/lvgl/
-third_party/ArduinoJson/
-
 # ESP-IDF build directory inside hw_monitor
 hw_monitor/build/
 
