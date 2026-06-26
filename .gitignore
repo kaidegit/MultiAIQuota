@@ -1,0 +1,43 @@
+# Build output
+build/
+build_*/
+cmake-build-*/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+
+# Local config / secrets
+maiq.json
+config.json
+*.key
+.env
+
+# ESP-IDF
+sdkconfig
+sdkconfig.old
+managed_components/
+dependencies.lock
+
+# Frontend
+hw_monitor/frontend/node_modules/
+hw_monitor/frontend/dist/
+hw_monitor/www/
+
+# Live integration test config (contains real API keys)
+tests/live_config.json
+
+# Third-party sources: clone or add as submodules separately
+third_party/lvgl/
+third_party/ArduinoJson/
+
+# ESP-IDF build directory inside hw_monitor
+hw_monitor/build/
+
