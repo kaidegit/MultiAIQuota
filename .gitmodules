@@ -1,0 +1,6 @@
+[submodule "lvgl"]
+	path = third_party/lvgl
+	url = https://github.com/lvgl/lvgl.git
+[submodule "ArduinoJson"]
+	path = third_party/ArduinoJson
+	url = https://github.com/bblanchon/ArduinoJson.git
