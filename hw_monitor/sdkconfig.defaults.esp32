@@ -1,2 +1,0 @@
-# ESP32 defaults for the reference Xueersi board (ESP32-WROVER-B, 4 MB flash, no PSRAM).
-CONFIG_ESP32_REV_MIN_1=y
