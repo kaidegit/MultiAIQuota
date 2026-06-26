@@ -43,4 +43,11 @@ void input_init() {
                     static_cast<lv_coord_t>(xueersi::LCD_HEIGHT / 2));
 }
 
+uint8_t input_read_keys() {
+    uint8_t keys = 0;
+    if (gpio_get_level(xueersi::PIN_KEY1) == 0) keys |= 0x01;
+    if (gpio_get_level(xueersi::PIN_KEY2) == 0) keys |= 0x02;
+    return keys;
+}
+
 } // namespace hw
