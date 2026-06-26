@@ -30,6 +30,7 @@ static char s_password[65] = {};
 static char s_ip[16] = {};
 static bool s_credentials_loaded = false;
 static bool s_smartconfig_started = false;
+static bool s_initial_attempt = false;
 
 static const char* state_to_string(WifiState state) {
     switch (state) {
@@ -59,9 +60,24 @@ static bool nvs_save_credentials(const char* ssid, const char* pass) {
         ESP_LOGE(TAG, "nvs_open failed: %s", esp_err_to_name(ret));
         return false;
     }
-    nvs_set_str(h, KEY_SSID, ssid);
-    nvs_set_str(h, KEY_PASS, pass);
-    nvs_commit(h);
+    ret = nvs_set_str(h, KEY_SSID, ssid);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_set_str(ssid) failed: %s", esp_err_to_name(ret));
+        nvs_close(h);
+        return false;
+    }
+    ret = nvs_set_str(h, KEY_PASS, pass);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_set_str(pass) failed: %s", esp_err_to_name(ret));
+        nvs_close(h);
+        return false;
+    }
+    ret = nvs_commit(h);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "nvs_commit failed: %s", esp_err_to_name(ret));
+        nvs_close(h);
+        return false;
+    }
     nvs_close(h);
     return true;
 }
@@ -92,12 +108,20 @@ static void nvs_clear_credentials() {
 
 static void apply_config_and_connect() {
     wifi_config_t cfg = {};
-    std::strncpy(reinterpret_cast<char*>(cfg.sta.ssid), s_ssid, sizeof(cfg.sta.ssid) - 1);
-    std::strncpy(reinterpret_cast<char*>(cfg.sta.password), s_password, sizeof(cfg.sta.password) - 1);
+    // Use the full field size (32/64 bytes). For max-length credentials the
+    // driver uses the whole field; shorter values are still null-terminated.
+    std::strncpy(reinterpret_cast<char*>(cfg.sta.ssid), s_ssid, sizeof(cfg.sta.ssid));
+    std::strncpy(reinterpret_cast<char*>(cfg.sta.password), s_password, sizeof(cfg.sta.password));
     cfg.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
-    esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    esp_err_t ret = esp_wifi_set_config(WIFI_IF_STA, &cfg);
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_set_config failed: %s", esp_err_to_name(ret));
+    }
     set_state(WifiState::Connecting);
-    esp_wifi_connect();
+    ret = esp_wifi_connect();
+    if (ret != ESP_OK) {
+        ESP_LOGE(TAG, "esp_wifi_connect failed: %s", esp_err_to_name(ret));
+    }
 }
 
 static void event_handler(void* arg, esp_event_base_t event_base,
@@ -108,12 +132,21 @@ static void event_handler(void* arg, esp_event_base_t event_base,
             apply_config_and_connect();
         }
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
+        auto* evt = static_cast<wifi_event_sta_disconnected_t*>(event_data);
+        ESP_LOGW(TAG, "disconnected, reason=%d", evt->reason);
         set_state(WifiState::Disconnected);
-        if (!s_smartconfig_started) {
+        if (s_smartconfig_started) {
+            // During SmartConfig the station may disconnect/scan repeatedly;
+            // do not treat those as fatal failures.
+        } else if (s_initial_attempt) {
+            // Initial credential attempt failed; signal failure so the caller
+            // can retry or fall back to SmartConfig. Do not auto-reconnect here.
+            xEventGroupSetBits(s_event_group, FAIL_BIT);
+        } else {
+            // Runtime disconnect: try to reconnect.
             set_state(WifiState::Connecting);
             esp_wifi_connect();
         }
-        xEventGroupSetBits(s_event_group, FAIL_BIT);
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
         set_state(WifiState::Connecting);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
@@ -150,6 +183,13 @@ static bool wait_for_ip(TickType_t timeout_ticks) {
     return (bits & CONNECTED_BIT) != 0;
 }
 
+static bool wait_for_connected(TickType_t timeout_ticks) {
+    EventBits_t bits = xEventGroupWaitBits(s_event_group,
+                                           CONNECTED_BIT,
+                                           pdTRUE, pdFALSE, timeout_ticks);
+    return (bits & CONNECTED_BIT) != 0;
+}
+
 static bool start_smartconfig(TickType_t timeout_ticks) {
     s_smartconfig_started = true;
     set_state(WifiState::SmartConfig);
@@ -163,7 +203,7 @@ static bool start_smartconfig(TickType_t timeout_ticks) {
     smartconfig_start_config_t cfg = SMARTCONFIG_START_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_smartconfig_start(&cfg));
 
-    bool ok = wait_for_ip(timeout_ticks);
+    bool ok = wait_for_connected(timeout_ticks);
     if (!ok && s_smartconfig_started) {
         esp_smartconfig_stop();
         s_smartconfig_started = false;
@@ -176,6 +216,15 @@ bool wifi_ensure_connected() {
 
     s_event_group = xEventGroupCreate();
     if (!s_event_group) return false;
+
+    // Load credentials before starting Wi-Fi so the STA_START handler can
+    // initiate a single, well-timed connection attempt.
+    bool have_stored = nvs_load_credentials(s_ssid, sizeof(s_ssid),
+                                            s_password, sizeof(s_password));
+    if (have_stored) {
+        s_credentials_loaded = true;
+        ESP_LOGI(TAG, "Loaded stored SSID: %s", s_ssid);
+    }
 
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
@@ -204,17 +253,27 @@ bool wifi_ensure_connected() {
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
     ESP_ERROR_CHECK(esp_wifi_start());
 
-    // Try stored credentials first.
-    if (nvs_load_credentials(s_ssid, sizeof(s_ssid), s_password, sizeof(s_password))) {
-        s_credentials_loaded = true;
-        ESP_LOGI(TAG, "Loaded stored SSID: %s", s_ssid);
-        apply_config_and_connect();
-        if (wait_for_ip(pdMS_TO_TICKS(15000))) {
-            return true;
+    // Try stored credentials first. STA_START will call apply_config_and_connect().
+    if (s_credentials_loaded) {
+        s_initial_attempt = true;
+        constexpr int kMaxRetries = 2;
+        for (int retry = 0; retry <= kMaxRetries; ++retry) {
+            if (retry > 0) {
+                ESP_LOGI(TAG, "retrying stored credentials (%d/%d)", retry, kMaxRetries);
+                xEventGroupClearBits(s_event_group, CONNECTED_BIT | FAIL_BIT);
+                apply_config_and_connect();
+            }
+            if (wait_for_ip(pdMS_TO_TICKS(15000))) {
+                s_initial_attempt = false;
+                return true;
+            }
         }
+        s_initial_attempt = false;
         ESP_LOGW(TAG, "Stored credentials failed, falling back to SmartConfig");
     }
 
+    // Make sure any pending connect/disconnect is cleared before SmartConfig.
+    esp_wifi_disconnect();
     return start_smartconfig(pdMS_TO_TICKS(120000));
 }
 

@@ -44,7 +44,9 @@ void run() {
     state.wifi_status = hw::wifi_state_string();
 
     auto cfg = hw::storage_load_config();
-    if (!cfg.accounts.empty()) {
+    if (hw::wifi_state() != hw::WifiState::Connected) {
+        state.last_error = "Wi-Fi not connected";
+    } else if (!cfg.accounts.empty()) {
         try {
             auto client = maiq::create_http_client_esp();
             state.statuses = maiq::query_all_statuses(*client, cfg.accounts);
