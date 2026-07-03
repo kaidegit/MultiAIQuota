@@ -4,6 +4,7 @@
   import WifiPage from './lib/WifiPage.svelte';
   import ConfigPage from './lib/ConfigPage.svelte';
   import QueryPage from './lib/QueryPage.svelte';
+  import ScreenPage from './lib/ScreenPage.svelte';
 </script>
 
 <main>
@@ -12,6 +13,7 @@
     <button class:active={tab === 'wifi'} onclick={() => tab = 'wifi'}>Wi-Fi</button>
     <button class:active={tab === 'config'} onclick={() => tab = 'config'}>账户配置</button>
     <button class:active={tab === 'query'} onclick={() => tab = 'query'}>查询</button>
+    <button class:active={tab === 'screen'} onclick={() => tab = 'screen'}>屏幕</button>
   </nav>
 
   <section>
@@ -19,8 +21,10 @@
       <WifiPage />
     {:else if tab === 'config'}
       <ConfigPage />
-    {:else}
+    {:else if tab === 'query'}
       <QueryPage />
+    {:else}
+      <ScreenPage />
     {/if}
   </section>
 </main>
