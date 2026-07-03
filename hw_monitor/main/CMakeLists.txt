@@ -13,6 +13,7 @@ idf_component_register(
         display
         input
         wifi
+        time_sync
         web_server
         storage
         board
