@@ -4,11 +4,15 @@
 #include <esp_http_server.h>
 #include <esp_log.h>
 
+#include <atomic>
+
 #include "maiq/config.hpp"
 #include "maiq/query.hpp"
 #include "http_client_esp.hpp"
 #include "storage.hpp"
 #include "wifi.hpp"
+#include "display.hpp"
+#include "board.hpp"
 
 #include <cstring>
 #include <fstream>
@@ -23,6 +27,8 @@ namespace {
 
 static const char* TAG = "web_server";
 static const char* LITTLEFS_ROOT = "/littlefs";
+
+static std::atomic<bool> g_config_saved{false};
 
 static std::optional<std::string> read_req_body(httpd_req_t* req, size_t max_len = 8192) {
     std::string body;
@@ -105,6 +111,7 @@ static esp_err_t config_post_handler(httpd_req_t* req) {
     try {
         auto cfg = maiq::Config::from_json_string(*body);
         if (storage_save_config(cfg)) {
+            g_config_saved.store(true);
             send_json_ok(req);
         } else {
             send_json_error(req, "save failed", 500);
@@ -209,11 +216,85 @@ static esp_err_t health_handler(httpd_req_t* req) {
     return ESP_OK;
 }
 
+static void bmp_header(uint8_t* out, uint32_t width, uint32_t height, uint32_t row_bytes) {
+    const uint32_t image_size = row_bytes * height;
+    const uint32_t file_size = 54 + image_size;
+    std::memset(out, 0, 54);
+    out[0] = 'B';
+    out[1] = 'M';
+    out[2] = static_cast<uint8_t>(file_size);
+    out[3] = static_cast<uint8_t>(file_size >> 8);
+    out[4] = static_cast<uint8_t>(file_size >> 16);
+    out[5] = static_cast<uint8_t>(file_size >> 24);
+    out[10] = 54;
+    out[14] = 40;
+    out[18] = static_cast<uint8_t>(width);
+    out[19] = static_cast<uint8_t>(width >> 8);
+    out[20] = static_cast<uint8_t>(width >> 16);
+    out[21] = static_cast<uint8_t>(width >> 24);
+    out[22] = static_cast<uint8_t>(height);
+    out[23] = static_cast<uint8_t>(height >> 8);
+    out[24] = static_cast<uint8_t>(height >> 16);
+    out[25] = static_cast<uint8_t>(height >> 24);
+    out[26] = 1;
+    out[28] = 24;
+    out[34] = static_cast<uint8_t>(image_size);
+    out[35] = static_cast<uint8_t>(image_size >> 8);
+    out[36] = static_cast<uint8_t>(image_size >> 16);
+    out[37] = static_cast<uint8_t>(image_size >> 24);
+}
+
+static esp_err_t screenshot_handler(httpd_req_t* req) {
+    constexpr uint32_t width = xueersi::LCD_WIDTH;
+    constexpr uint32_t height = xueersi::LCD_HEIGHT;
+    constexpr uint32_t row_bytes = width * 3;
+
+    const uint16_t* buf = hw::display_screenshot_lock();
+
+    uint8_t header[54];
+    bmp_header(header, width, height, row_bytes);
+
+    httpd_resp_set_status(req, "200 OK");
+    httpd_resp_set_type(req, "image/bmp");
+
+    esp_err_t err = httpd_resp_send_chunk(req, reinterpret_cast<const char*>(header), sizeof(header));
+
+    uint8_t row[row_bytes];
+    for (int y = static_cast<int>(height) - 1; err == ESP_OK && y >= 0; --y) {
+        for (int x = 0; x < static_cast<int>(width); ++x) {
+            const uint16_t swapped = buf[y * width + x];
+            const uint16_t c = __builtin_bswap16(swapped);
+            const uint8_t r5 = (c >> 11) & 0x1F;
+            const uint8_t g6 = (c >> 5) & 0x3F;
+            const uint8_t b5 = c & 0x1F;
+            const uint8_t r = static_cast<uint8_t>((r5 << 3) | (r5 >> 2));
+            const uint8_t g = static_cast<uint8_t>((g6 << 2) | (g6 >> 4));
+            const uint8_t b = static_cast<uint8_t>((b5 << 3) | (b5 >> 2));
+            row[x * 3 + 0] = b;
+            row[x * 3 + 1] = g;
+            row[x * 3 + 2] = r;
+        }
+        err = httpd_resp_send_chunk(req, reinterpret_cast<const char*>(row), row_bytes);
+    }
+
+    hw::display_screenshot_unlock();
+
+    if (err == ESP_OK) {
+        err = httpd_resp_send_chunk(req, nullptr, 0);
+    }
+    return err;
+}
+
 } // namespace
+
+bool web_server_take_config_saved_flag() {
+    return g_config_saved.exchange(false);
+}
 
 void web_server_start() {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.stack_size = 8192; // query endpoint needs extra stack
+    config.max_uri_handlers = 16; // we now have more than the default 8 handlers
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     httpd_handle_t server = nullptr;
@@ -224,6 +305,7 @@ void web_server_start() {
 
     httpd_uri_t routes[] = {
         {"/api/health",        HTTP_GET,  health_handler,        nullptr},
+        {"/api/screenshot",    HTTP_GET,  screenshot_handler,    nullptr},
         {"/api/config",        HTTP_GET,  config_get_handler,    nullptr},
         {"/api/config",        HTTP_POST, config_post_handler,   nullptr},
         {"/api/wifi/status",   HTTP_GET,  wifi_status_handler,   nullptr},
