@@ -9,7 +9,7 @@
 - `host_sim`：PC 端 LVGL + SDL2 主机模拟器。
 - `hw_monitor`：ESP32-IDF 5.5 固件（项目名 `MultiAIQuotaMonitor`）。
 
-MVP 阶段仅实现 **Kimi** 与 **DeepSeek**；其他厂商在 `Vendor`/`Provider` 中保留接口，暂未实现。
+MVP 阶段实现 **Kimi**、**DeepSeek** 与 **Codex**；其他厂商在 `Vendor`/`Provider` 中保留接口，暂未实现。
 
 ## 快速开始
 
@@ -57,6 +57,7 @@ MultiAIQuota/
 |---|---|---|
 | Kimi / Moonshot | `coding_plan`、`balance` | Bearer API Key |
 | DeepSeek | `balance` | Bearer API Key |
+| Codex (OpenAI ChatGPT 登录) | `coding_plan` | `codex_oauth` access_token + account_id |
 
 ## 配置示例
 
@@ -76,6 +77,14 @@ MultiAIQuota/
       "mode": "balance",
       "auth_type": "bearer",
       "api_key": "sk-xxx"
+    },
+    {
+      "name": "my-codex",
+      "vendor": "codex",
+      "mode": "coding_plan",
+      "auth_type": "codex_oauth",
+      "access_token": "从 ~/.codex/auth.json 的 tokens.access_token 复制",
+      "account_id": "从 ~/.codex/auth.json 的 tokens.account_id 复制"
     }
   ]
 }

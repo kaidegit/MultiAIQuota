@@ -1,3 +1,4 @@
+#include "maiq/providers/codex.hpp"
 #include "maiq/providers/kimi.hpp"
 #include "maiq/config.hpp"
 #include "maiq/http_client.hpp"
@@ -65,6 +66,74 @@ int main() {
         assert(status.is_valid);
         assert(status.entries.size() == 3);
         assert(status.entries[0].remaining == 49.59);
+    }
+
+    // Codex usage parse test
+    {
+        ProviderConfig cfg;
+        cfg.name = "test-codex";
+        cfg.vendor = Vendor::Codex;
+        cfg.mode = QueryMode::CodingPlan;
+        cfg.credentials = CodexOAuthCredentials{"access-token", "account-1"};
+
+        const char* json = R"({
+            "plan_type": "pro",
+            "rate_limit": {
+                "allowed": true,
+                "limit_reached": false,
+                "primary_window": {"used_percent": 12, "limit_window_seconds": 18000, "reset_after_seconds": 180, "reset_at": 1751548800},
+                "secondary_window": {"used_percent": 5, "limit_window_seconds": 604800, "reset_after_seconds": 0, "reset_at": 1751552400}
+            },
+            "credits": {"has_credits": true, "unlimited": false, "balance": "42"},
+            "spend_control": {
+                "reached": false,
+                "individual_limit": {"limit": "25000", "used": "1234", "remaining": "23766", "used_percent": 5, "remaining_percent": 95, "reset_after_seconds": 0, "reset_at": 1751552400}
+            },
+            "additional_rate_limits": [
+                {"limit_name": "codex-other", "metered_feature": "codex_other", "rate_limit": {"allowed": true, "limit_reached": false, "primary_window": {"used_percent": 30, "limit_window_seconds": 900, "reset_after_seconds": 0, "reset_at": 1751550600}}}
+            ]
+        })";
+
+        MockHttpClient client(json);
+        auto status = query_one(client, cfg);
+        assert(status.is_valid);
+        assert(status.entries.size() == 6);
+        assert(status.entries[0].name == "plan-pro");
+        assert(status.entries[1].name == "5h");
+        assert(status.entries[1].used == 12.0);
+        assert(status.entries[1].remaining == 88.0);
+        assert(status.entries[1].reset_at == static_cast<time_t>(1751548800));
+        assert(status.entries[2].name == "weekly");
+        assert(status.entries[3].name == "credits");
+        assert(status.entries[3].remaining == 42.0);
+        assert(status.entries[4].name == "monthly-limit");
+        assert(status.entries[4].used == 1234.0);
+        assert(status.entries[4].remaining == 23766.0);
+        assert(status.entries[4].total == 25000.0);
+        assert(status.entries[5].name == "codex-other");
+        assert(status.entries[5].used == 30.0);
+    }
+
+    // Codex unlimited credits parse test
+    {
+        ProviderConfig cfg;
+        cfg.name = "test-codex-unlimited";
+        cfg.vendor = Vendor::Codex;
+        cfg.mode = QueryMode::CodingPlan;
+        cfg.credentials = CodexOAuthCredentials{"access-token", "account-1"};
+
+        const char* json = R"({
+            "plan_type": "plus",
+            "rate_limit": {"allowed": true, "limit_reached": false},
+            "credits": {"has_credits": true, "unlimited": true}
+        })";
+
+        MockHttpClient client(json);
+        auto status = query_one(client, cfg);
+        assert(status.is_valid);
+        assert(status.entries.size() == 2);
+        assert(status.entries[0].name == "plan-plus");
+        assert(status.entries[1].name == "credits-unlimited");
     }
 
     std::cout << "All tests passed.\n";

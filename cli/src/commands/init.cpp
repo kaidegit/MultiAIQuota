@@ -17,6 +17,14 @@ const char* EXAMPLE_CONFIG = R"({
       "mode": "balance",
       "auth_type": "bearer",
       "api_key": "sk-xxxxxxxx"
+    },
+    {
+      "name": "my-codex",
+      "vendor": "codex",
+      "mode": "coding_plan",
+      "auth_type": "codex_oauth",
+      "access_token": "从 ~/.codex/auth.json 的 tokens.access_token 复制",
+      "account_id": "从 ~/.codex/auth.json 的 tokens.account_id 复制"
     }
   ]
 })";
