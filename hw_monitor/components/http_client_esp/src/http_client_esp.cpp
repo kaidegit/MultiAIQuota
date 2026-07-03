@@ -62,7 +62,7 @@ public:
         ESP_LOGI(TAG, "%s %s -> status=%d, content_length=%lld, received=%zu",
                  method.c_str(), url.c_str(), status, content_len, response_body.size());
         if (!response_body.empty()) {
-            ESP_LOGD(TAG, "response: %.*s", static_cast<int>(response_body.size()), response_body.data());
+            ESP_LOGI(TAG, "response: %.*s", static_cast<int>(response_body.size()), response_body.data());
         }
 
         esp_http_client_cleanup(client);
