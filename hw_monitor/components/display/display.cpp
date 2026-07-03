@@ -22,6 +22,8 @@
 #include <freertos/task.h>
 #include <lvgl.h>
 
+#include <mutex>
+
 namespace hw {
 
 namespace {
@@ -358,7 +360,19 @@ static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
     return static_cast<uint16_t>(((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3));
 }
 
+static std::mutex screenshot_mutex;
+static uint16_t screenshot_buf[xueersi::LCD_WIDTH * xueersi::LCD_HEIGHT] = {};
+
 } // namespace
+
+const uint16_t* display_screenshot_lock() {
+    screenshot_mutex.lock();
+    return screenshot_buf;
+}
+
+void display_screenshot_unlock() {
+    screenshot_mutex.unlock();
+}
 
 static bool color_trans_done_cb(esp_lcd_panel_io_handle_t panel_io,
                                 esp_lcd_panel_io_event_data_t* edata,
@@ -375,6 +389,19 @@ static void flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map)
     int y1 = area->y1;
     int x2 = area->x2 + 1; // esp_lcd uses exclusive end coordinates
     int y2 = area->y2 + 1;
+
+    // Copy the rendered region into the shadow screenshot buffer before the
+    // SPI transfer potentially mutates or reuses the partial buffer.
+    {
+        std::lock_guard<std::mutex> lock(screenshot_mutex);
+        const int w = x2 - x1;
+        const uint16_t* src = reinterpret_cast<const uint16_t*>(px_map);
+        for (int y = y1; y < y2; ++y) {
+            for (int x = x1; x < x2; ++x) {
+                screenshot_buf[y * xueersi::LCD_WIDTH + x] = src[(y - y1) * w + (x - x1)];
+            }
+        }
+    }
 
     esp_err_t err = esp_lcd_panel_draw_bitmap(panel, x1, y1, x2, y2, px_map);
     if (err != ESP_OK) {
