@@ -5,6 +5,12 @@
 #include <ctime>
 #include <string>
 
+#ifdef ESP_PLATFORM
+#include <esp_log.h>
+#else
+#define ESP_LOGI(tag, fmt, ...) do { printf("I (%s): " fmt "\n", tag, ##__VA_ARGS__); } while (0)
+#endif
+
 namespace gui::pages {
 
 namespace {
@@ -23,6 +29,16 @@ std::string format_reset_in(time_t reset_at) {
     time_t now = std::time(nullptr);
     double diff = std::difftime(reset_at, now);
     if (diff <= 0) return "resets now";
+
+    // If the system clock is not set (e.g., fresh ESP32 boot without SNTP),
+    // diff can be decades. Show absolute local time instead of a bogus countdown.
+    if (diff > 365 * 86400) {
+        char buf[32];
+        struct tm tm_info;
+        localtime_r(&reset_at, &tm_info);
+        std::strftime(buf, sizeof(buf), "Reset at %m-%d %H:%M", &tm_info);
+        return buf;
+    }
 
     int64_t seconds = static_cast<int64_t>(diff);
     int64_t days = seconds / 86400;
@@ -53,6 +69,8 @@ std::string format_refresh_time(std::time_t t) {
 } // namespace
 
 void DashboardPage::create() {
+    ESP_LOGI("dashboard", "create: state_ addr=%p", static_cast<const void*>(&state_));
+
     lv_obj_set_flex_flow(parent_, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_all(parent_, 2, 0);
     lv_obj_set_style_pad_row(parent_, 1, 0);
@@ -126,6 +144,8 @@ void DashboardPage::create_footer() {
 }
 
 void DashboardPage::update() {
+    ESP_LOGI("dashboard", "update: statuses=%zu querying=%d",
+             state_.statuses.size(), static_cast<int>(state_.querying));
     update_header();
 
     if (!cards_container_) return;
