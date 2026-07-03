@@ -11,11 +11,13 @@ namespace maiq {
 inline time_t utc_time_from_tm(const std::tm& tm) {
 #ifdef ESP_PLATFORM
     static constexpr int days_before_month[12] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    // Days from 0001-01-01 to 1970-01-01 (Unix epoch origin).
+    static constexpr long long days_before_epoch = 1969LL * 365 + 1969 / 4 - 1969 / 100 + 1969 / 400;
     int year = tm.tm_year + 1900;
     int month = tm.tm_mon;
     int day = tm.tm_mday - 1;
     long long y = year - 1;
-    long long days = y * 365 + y / 4 - y / 100 + y / 400
+    long long days = y * 365 + y / 4 - y / 100 + y / 400 - days_before_epoch
                    + days_before_month[month] + day;
     if (month > 1 && ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0))) {
         ++days;
