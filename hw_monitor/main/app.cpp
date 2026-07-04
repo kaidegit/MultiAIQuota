@@ -171,27 +171,86 @@ static void handle_config_saved(AppContext& ctx,
     perform_refresh(ctx);
 }
 
+struct SplashScreen {
+    lv_obj_t* container = nullptr;
+    lv_obj_t* status = nullptr;
+};
+
+static SplashScreen create_splash(lv_obj_t* parent) {
+    SplashScreen splash;
+    splash.container = lv_obj_create(parent);
+    lv_obj_set_size(splash.container, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_bg_color(splash.container, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(splash.container, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(splash.container, 0, 0);
+    lv_obj_set_style_pad_all(splash.container, 0, 0);
+
+    lv_obj_t* title = lv_label_create(splash.container);
+    lv_label_set_text(title, "MultiAIQuota");
+    lv_obj_set_style_text_color(title, lv_color_white(), 0);
+    lv_obj_set_style_text_font(title, &lv_font_montserrat_16, 0);
+    lv_obj_align(title, LV_ALIGN_CENTER, 0, -10);
+
+    splash.status = lv_label_create(splash.container);
+    lv_label_set_text(splash.status, "Booting...");
+    lv_obj_set_style_text_color(splash.status, lv_color_hex(0x9ca3af), 0);
+    lv_obj_set_style_text_font(splash.status, &lv_font_montserrat_10, 0);
+    lv_obj_align(splash.status, LV_ALIGN_CENTER, 0, 12);
+
+    return splash;
+}
+
+static void splash_set_status(SplashScreen& splash, const char* text) {
+    if (splash.status) {
+        lv_label_set_text(splash.status, text);
+    }
+    lv_refr_now(nullptr);
+}
+
 } // namespace
 
 void run() {
     ESP_LOGI(TAG, "starting hw_monitor with status logging");
-    if (!hw::board_init() || !hw::storage_init()) {
-        ESP_LOGE(TAG, "init failed");
+
+    if (!hw::board_init()) {
+        ESP_LOGE(TAG, "board init failed");
         return;
     }
 
     lv_init();
     lv_display_t* disp = hw::display_init();
+    if (!disp) {
+        ESP_LOGE(TAG, "display init failed");
+        return;
+    }
     hw::input_init();
 
+    lv_obj_t* scr = lv_display_get_screen_active(disp);
+    lv_obj_set_style_bg_color(scr, lv_color_black(), 0);
+    lv_obj_set_style_bg_opa(scr, LV_OPA_COVER, 0);
+
+    SplashScreen splash = create_splash(scr);
+    lv_refr_now(nullptr);  // Flush a black frame to clear power-on garbage.
+
+    splash_set_status(splash, "Initializing storage...");
+    if (!hw::storage_init()) {
+        ESP_LOGE(TAG, "storage init failed");
+        splash_set_status(splash, "Storage init failed");
+        return;
+    }
+
+    splash_set_status(splash, "Connecting Wi-Fi...");
     if (!hw::wifi_ensure_connected()) {
         ESP_LOGW(TAG, "wifi not connected");
     } else {
+        splash_set_status(splash, "Syncing time...");
         hw::time_sync();
     }
+
+    splash_set_status(splash, "Starting web server...");
     hw::web_server_start();
 
-    lv_obj_t* scr = lv_display_get_screen_active(disp);
+    splash_set_status(splash, "Loading config...");
     gui::AppState state;
     state.wifi_status = hw::wifi_state_string();
 
@@ -209,6 +268,8 @@ void run() {
         state.last_error = "No accounts configured";
     }
 
+    // Remove splash and create the main UI.
+    lv_obj_clean(scr);
     gui::pages::DashboardPage page(scr, state, gui::XUEERSI_SPEC);
     page.create();
     ESP_LOGI(TAG, "state addr=%p", static_cast<void*>(&state));
