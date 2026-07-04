@@ -285,7 +285,7 @@ void run() {
         perform_refresh(ctx);
     }
 
-    lv_timer_t* cycle_timer = lv_timer_create(cycle_timer_cb, 10000, &ctx);
+    lv_timer_create(cycle_timer_cb, 10000, &ctx);
     lv_timer_t* refresh_timer = lv_timer_create(refresh_timer_cb, 5 * 60 * 1000, &ctx);
 
     uint8_t prev_keys = 0;

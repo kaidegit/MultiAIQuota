@@ -4,3 +4,6 @@
 [submodule "ArduinoJson"]
 	path = third_party/ArduinoJson
 	url = https://github.com/bblanchon/ArduinoJson.git
+[submodule "third_party/cpp-httplib"]
+	path = third_party/cpp-httplib
+	url = https://github.com/yhirose/cpp-httplib.git

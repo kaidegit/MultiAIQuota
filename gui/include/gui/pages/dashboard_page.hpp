@@ -23,8 +23,8 @@ private:
     void render_subscription(const maiq::AccountStatus& s);
     void render_balance(const maiq::AccountStatus& s);
 
-    lv_obj_t* make_card(const char* label, const maiq::QuotaEntry& entry,
-                        bool is_subscription);
+    lv_obj_t* make_card(const char* title, const maiq::QuotaEntry& entry,
+                        bool is_subscription, bool weekly);
 
     const maiq::QuotaEntry* pick_short_quota(const maiq::AccountStatus& s) const;
     const maiq::QuotaEntry* pick_week_quota(const maiq::AccountStatus& s) const;
@@ -33,8 +33,10 @@ private:
 
     lv_obj_t* header_name_ = nullptr;
     lv_obj_t* header_wifi_ = nullptr;
+    lv_obj_t* header_status_dot_ = nullptr;
     lv_obj_t* cards_container_ = nullptr;
     lv_obj_t* footer_dots_ = nullptr;
+    lv_obj_t* footer_page_ = nullptr;
     lv_obj_t* footer_time_ = nullptr;
 };
 

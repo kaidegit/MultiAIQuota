@@ -15,6 +15,8 @@
 
 #if MAIQ_GUI_HOST_SAVE_SNAPSHOT
 #include <src/others/snapshot/lv_snapshot.h>
+#define LODEPNG_NO_COMPILE_CPP
+#include <libs/lodepng/lodepng.h>
 #endif
 
 #include <cstdio>
@@ -23,6 +25,7 @@
 #include <sstream>
 #include <thread>
 #include <chrono>
+#include <vector>
 
 namespace {
 
@@ -89,32 +92,53 @@ static void save_snapshot(lv_obj_t* scr, const char* path) {
     lv_draw_buf_t* snap = lv_snapshot_take(scr, LV_COLOR_FORMAT_RGB888);
     if (!snap || !snap->data) return;
 
-    FILE* f = std::fopen(path, "wb");
-    if (f) {
-        std::fprintf(f, "P6\n%d %d\n255\n", w, h);
-        const uint8_t* data = static_cast<const uint8_t*>(snap->data);
-        int32_t stride = snap->header.stride;
-        for (int32_t y = 0; y < h; ++y) {
-            const uint8_t* row = data + y * stride;
-            for (int32_t x = 0; x < w; ++x) {
-                std::fwrite(row + x * 3, 1, 3, f);
-            }
+    const uint8_t* data = static_cast<const uint8_t*>(snap->data);
+    const int32_t stride = snap->header.stride;
+
+    std::vector<unsigned char> image(static_cast<size_t>(w) * h * 3);
+    for (int32_t y = 0; y < h; ++y) {
+        const uint8_t* row = data + y * stride;
+        std::size_t dst_offset = static_cast<size_t>(y) * w * 3;
+        for (int32_t x = 0; x < w; ++x) {
+            image[dst_offset + x * 3 + 0] = row[x * 3 + 0];
+            image[dst_offset + x * 3 + 1] = row[x * 3 + 1];
+            image[dst_offset + x * 3 + 2] = row[x * 3 + 2];
         }
-        std::fclose(f);
     }
+
+    unsigned char* png = nullptr;
+    size_t png_size = 0;
+    unsigned err = lodepng_encode24(&png, &png_size, image.data(), w, h);
+    if (err) {
+        std::fprintf(stderr, "Failed to encode PNG snapshot: %s\n", lodepng_error_text(err));
+    } else {
+        std::ofstream f(path, std::ios::binary);
+        if (f) {
+            f.write(reinterpret_cast<const char*>(png), static_cast<std::streamsize>(png_size));
+        } else {
+            std::fprintf(stderr, "Failed to open PNG snapshot file: %s\n", path);
+        }
+    }
+    lv_free(png);
+
     lv_draw_buf_destroy(snap);
 }
 
 static void load_snapshot_demo_data(gui::AppState& state) {
     std::time_t now = std::time(nullptr);
+    state.wifi_status = "connected";
 
-    maiq::AccountStatus demo(maiq::Vendor::Kimi, "demo-kimi", maiq::QueryMode::CodingPlan, {});
-    demo.entries.emplace_back("3h", "requests");
-    demo.entries.back().with_remaining(42).with_total(50).with_reset_at(now + 78 * 60);
+    maiq::AccountStatus demo(maiq::Vendor::Kimi, "my-kimi-code", maiq::QueryMode::CodingPlan, {});
+    demo.entries.emplace_back("5h", "requests");
+    demo.entries.back().with_remaining(44).with_total(50).with_reset_at(now + 14 * 3600 + 30 * 60);
     demo.entries.emplace_back("weekly", "requests");
-    demo.entries.back().with_remaining(318).with_total(500).with_reset_at(now + 3 * 86400 + 5 * 3600);
+    demo.entries.back().with_remaining(440).with_total(500).with_reset_at(now + 14 * 3600 + 30 * 60);
 
-    state.statuses = {demo};
+    maiq::AccountStatus standby = demo;
+    standby.account_name = "backup-kimi";
+    maiq::AccountStatus trial = demo;
+    trial.account_name = "trial-kimi";
+    state.statuses = {demo, standby, trial};
     state.last_refresh_at = now;
 }
 #endif
@@ -182,7 +206,7 @@ int main(int argc, char** argv) {
         if (!snapshot_done) {
             auto elapsed = std::chrono::steady_clock::now() - snapshot_start;
             if (elapsed > std::chrono::seconds(3)) {
-                save_snapshot(scr, "/tmp/maiq_snapshot.ppm");
+                save_snapshot(scr, "/tmp/maiq_snapshot.png");
                 snapshot_done = true;
                 running = false;
             }

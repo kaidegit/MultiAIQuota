@@ -1,6 +1,7 @@
 # Build output
 build/
 build_*/
+build-*/
 cmake-build-*/
 out/
 
@@ -36,4 +37,3 @@ tests/live_config.json
 
 # ESP-IDF build directory inside hw_monitor
 hw_monitor/build/
-
