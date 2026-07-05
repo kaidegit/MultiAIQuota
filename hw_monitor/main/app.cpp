@@ -93,6 +93,14 @@ struct RefreshResult {
 
 static QueueHandle_t refresh_result_queue = nullptr;
 static SemaphoreHandle_t refresh_mutex = nullptr;
+static constexpr uint32_t kMainLoopMaxDelayMs = 5;
+
+static const char* selected_account_name(const gui::AppState& state) {
+    if (state.statuses.empty() || state.selected_account_index >= state.statuses.size()) {
+        return "<none>";
+    }
+    return state.statuses[state.selected_account_index].account_name.c_str();
+}
 
 static void apply_refresh_result(AppContext& ctx, RefreshResult* result) {
     if (!result) return;
@@ -102,13 +110,16 @@ static void apply_refresh_result(AppContext& ctx, RefreshResult* result) {
     }
 
     if (result->error.empty()) {
+        size_t before_index = ctx.state->selected_account_index;
         ctx.state->statuses = std::move(result->statuses);
         ctx.state->last_refresh_at = result->refresh_at;
         if (!ctx.state->statuses.empty() &&
             ctx.state->selected_account_index >= ctx.state->statuses.size()) {
             ctx.state->selected_account_index = 0;
         }
-        ESP_LOGI(TAG, "received %zu status result(s)", ctx.state->statuses.size());
+        ESP_LOGI(TAG, "received %zu status result(s), selected %zu -> %zu (%s)",
+                 ctx.state->statuses.size(), before_index, ctx.state->selected_account_index,
+                 selected_account_name(*ctx.state));
         for (const auto& s : ctx.state->statuses) {
             log_account_status(s);
         }
@@ -187,8 +198,12 @@ static void cycle_timer_cb(lv_timer_t* t) {
     auto* ctx = static_cast<AppContext*>(lv_timer_get_user_data(t));
     if (!ctx || !ctx->state || !ctx->page) return;
     if (ctx->state->statuses.empty()) return;
+    size_t before_index = ctx->state->selected_account_index;
     ctx->state->selected_account_index =
         (ctx->state->selected_account_index + 1) % ctx->state->statuses.size();
+    ESP_LOGI(TAG, "auto cycle selected %zu -> %zu (%s), statuses=%zu",
+             before_index, ctx->state->selected_account_index,
+             selected_account_name(*ctx->state), ctx->state->statuses.size());
     ctx->page->update();
 }
 
@@ -370,16 +385,32 @@ void run() {
             lv_refr_now(nullptr);  // Force immediate render of refreshed data.
         }
 
-        uint8_t btn = hw::input_take_button_press();
-        if (btn == 1 && !state.statuses.empty()) {
-            state.selected_account_index =
-                (state.selected_account_index + 1) % state.statuses.size();
-            page.update();
-        }
-        if (btn == 2) {
-            if (refresh_timer) lv_timer_reset(refresh_timer);
-            start_refresh(ctx);
-            lv_refr_now(nullptr);  // Force immediate render of loading state.
+        uint8_t btn = 0;
+        while ((btn = hw::input_take_button_press()) != 0) {
+            ESP_LOGI(TAG, "button event btn=%u selected=%zu statuses=%zu account=%s",
+                     btn, state.selected_account_index, state.statuses.size(),
+                     selected_account_name(state));
+            if (btn == 1 && !state.statuses.empty()) {
+                size_t before_index = state.selected_account_index;
+                state.selected_account_index =
+                    (state.selected_account_index + 1) % state.statuses.size();
+                ESP_LOGI(TAG, "button next selected %zu -> %zu (%s)",
+                         before_index, state.selected_account_index,
+                         selected_account_name(state));
+                page.update();
+                lv_refr_now(nullptr);  // Force immediate render of selected page.
+            } else if (btn == 2) {
+                ESP_LOGI(TAG, "button refresh selected=%zu (%s), querying=%d",
+                         state.selected_account_index, selected_account_name(state),
+                         static_cast<int>(state.querying));
+                if (refresh_timer) lv_timer_reset(refresh_timer);
+                start_refresh(ctx);
+                lv_refr_now(nullptr);  // Force immediate render of loading state.
+            } else if (btn == 1) {
+                ESP_LOGI(TAG, "button next ignored because statuses is empty");
+            } else {
+                ESP_LOGW(TAG, "unknown button event btn=%u", btn);
+            }
         }
 
         if (hw::web_server_take_config_saved_flag()) {
@@ -387,7 +418,10 @@ void run() {
             lv_refr_now(nullptr);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(delay_ms > 0 ? delay_ms : 5));
+        if (delay_ms == LV_NO_TIMER_READY || delay_ms > kMainLoopMaxDelayMs) {
+            delay_ms = kMainLoopMaxDelayMs;
+        }
+        vTaskDelay(pdMS_TO_TICKS(delay_ms > 0 ? delay_ms : kMainLoopMaxDelayMs));
     }
 }
 

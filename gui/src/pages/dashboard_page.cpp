@@ -207,8 +207,16 @@ void DashboardPage::create_footer() {
 }
 
 void DashboardPage::update() {
-    ESP_LOGI("dashboard", "update: statuses=%zu querying=%d",
-             state_.statuses.size(), static_cast<int>(state_.querying));
+    const char* account_name = "<none>";
+    std::string vendor_name = "<none>";
+    if (!state_.statuses.empty() && state_.selected_account_index < state_.statuses.size()) {
+        const auto& selected = state_.statuses[state_.selected_account_index];
+        account_name = selected.account_name.c_str();
+        vendor_name = maiq::to_string(selected.vendor);
+    }
+    ESP_LOGI("dashboard", "update: selected=%zu statuses=%zu querying=%d account=%s vendor=%s",
+             state_.selected_account_index, state_.statuses.size(),
+             static_cast<int>(state_.querying), account_name, vendor_name.c_str());
     update_header();
 
     if (!cards_container_) return;
