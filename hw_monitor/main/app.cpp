@@ -19,6 +19,8 @@
 
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/semphr.h>
 #include <freertos/task.h>
 #include <lvgl.h>
 
@@ -83,7 +85,64 @@ struct AppContext {
     maiq::HttpClient* client = nullptr;
 };
 
-static void perform_refresh(AppContext& ctx) {
+struct RefreshResult {
+    std::vector<maiq::AccountStatus> statuses;
+    std::string error;
+    std::optional<std::time_t> refresh_at;
+};
+
+static QueueHandle_t refresh_result_queue = nullptr;
+static SemaphoreHandle_t refresh_mutex = nullptr;
+
+static void apply_refresh_result(AppContext& ctx, RefreshResult* result) {
+    if (!result) return;
+    if (!ctx.state || !ctx.page) {
+        delete result;
+        return;
+    }
+
+    if (result->error.empty()) {
+        ctx.state->statuses = std::move(result->statuses);
+        ctx.state->last_refresh_at = result->refresh_at;
+        if (!ctx.state->statuses.empty() &&
+            ctx.state->selected_account_index >= ctx.state->statuses.size()) {
+            ctx.state->selected_account_index = 0;
+        }
+        ESP_LOGI(TAG, "received %zu status result(s)", ctx.state->statuses.size());
+        for (const auto& s : ctx.state->statuses) {
+            log_account_status(s);
+        }
+    } else {
+        ESP_LOGE(TAG, "query failed: %s", result->error.c_str());
+        ctx.state->last_error = std::move(result->error);
+    }
+
+    ctx.state->querying = false;
+    delete result;
+    ctx.page->update();
+}
+
+static void refresh_task(void* arg) {
+    auto* ctx = static_cast<AppContext*>(arg);
+    auto* result = new RefreshResult();
+
+    xSemaphoreTake(refresh_mutex, portMAX_DELAY);
+    try {
+        if (ctx->client && ctx->cfg) {
+            ESP_LOGI(TAG, "refreshing %zu account(s)", ctx->cfg->accounts.size());
+            result->statuses = maiq::query_all_statuses(*ctx->client, ctx->cfg->accounts);
+            result->refresh_at = std::time(nullptr);
+        }
+    } catch (const std::exception& e) {
+        result->error = e.what();
+    }
+    xSemaphoreGive(refresh_mutex);
+
+    xQueueSend(refresh_result_queue, &result, portMAX_DELAY);
+    vTaskDelete(nullptr);
+}
+
+static void start_refresh(AppContext& ctx) {
     if (!ctx.state || !ctx.page || !ctx.cfg || !ctx.client) return;
     if (ctx.state->querying) return;
 
@@ -99,29 +158,29 @@ static void perform_refresh(AppContext& ctx) {
     ctx.state->last_error.clear();
     ctx.page->update();
 
-    try {
-        ESP_LOGI(TAG, "refreshing %zu account(s)", ctx.cfg->accounts.size());
-        ctx.state->statuses = maiq::query_all_statuses(*ctx.client, ctx.cfg->accounts);
-        ctx.state->last_refresh_at = std::time(nullptr);
-        ESP_LOGI(TAG, "received %zu status result(s)", ctx.state->statuses.size());
-        if (!ctx.state->statuses.empty() &&
-            ctx.state->selected_account_index >= ctx.state->statuses.size()) {
-            ctx.state->selected_account_index = 0;
-        }
-        for (const auto& s : ctx.state->statuses) {
-            log_account_status(s);
-        }
-    } catch (const std::exception& e) {
-        ESP_LOGE(TAG, "query failed: %s", e.what());
-        ctx.state->last_error = e.what();
+    BaseType_t created = xTaskCreate(refresh_task, "refresh", 8192, &ctx, 5, nullptr);
+    if (created != pdPASS) {
+        ESP_LOGE(TAG, "failed to create refresh task");
+        ctx.state->last_error = "Refresh task failed";
+        ctx.state->querying = false;
+        ctx.page->update();
     }
-    ctx.state->querying = false;
-    ctx.page->update();
+}
+
+static void wait_for_refresh(AppContext& ctx) {
+    while (ctx.state && ctx.state->querying) {
+        RefreshResult* result = nullptr;
+        if (xQueueReceive(refresh_result_queue, &result, 0) == pdTRUE) {
+            apply_refresh_result(ctx, result);
+        }
+        lv_timer_handler();
+        vTaskDelay(pdMS_TO_TICKS(5));
+    }
 }
 
 static void refresh_timer_cb(lv_timer_t* t) {
     auto* ctx = static_cast<AppContext*>(lv_timer_get_user_data(t));
-    if (ctx) perform_refresh(*ctx);
+    if (ctx) start_refresh(*ctx);
 }
 
 static void cycle_timer_cb(lv_timer_t* t) {
@@ -140,9 +199,14 @@ static void handle_config_saved(AppContext& ctx,
     ESP_LOGI(TAG, "config saved from web UI, reloading and refreshing");
     if (refresh_timer) lv_timer_reset(refresh_timer);
 
+    // Wait for any ongoing refresh before mutating config/client.
+    wait_for_refresh(ctx);
+
+    xSemaphoreTake(refresh_mutex, portMAX_DELAY);
     cfg = hw::storage_load_config();
     ctx.cfg = &cfg;
     ctx.client = client.get();
+    xSemaphoreGive(refresh_mutex);
 
     if (cfg.accounts.empty()) {
         ctx.state->statuses.clear();
@@ -160,7 +224,9 @@ static void handle_config_saved(AppContext& ctx,
     if (!client) {
         try {
             client = maiq::create_http_client_esp();
+            xSemaphoreTake(refresh_mutex, portMAX_DELAY);
             ctx.client = client.get();
+            xSemaphoreGive(refresh_mutex);
         } catch (const std::exception& e) {
             ctx.state->last_error = e.what();
             ctx.page->update();
@@ -168,7 +234,7 @@ static void handle_config_saved(AppContext& ctx,
         }
     }
 
-    perform_refresh(ctx);
+    start_refresh(ctx);
 }
 
 struct SplashScreen {
@@ -280,32 +346,41 @@ void run() {
     ctx.cfg = &cfg;
     ctx.client = client.get();
 
+    // Synchronization primitives for asynchronous refresh.
+    refresh_result_queue = xQueueCreate(1, sizeof(RefreshResult*));
+    refresh_mutex = xSemaphoreCreateMutex();
+
     // Perform initial query if we have a client ready.
     if (client) {
-        perform_refresh(ctx);
+        start_refresh(ctx);
     }
 
     lv_timer_create(cycle_timer_cb, 10000, &ctx);
     lv_timer_t* refresh_timer = lv_timer_create(refresh_timer_cb, 5 * 60 * 1000, &ctx);
 
-    uint8_t prev_keys = 0;
     while (true) {
         uint32_t delay_ms = lv_timer_handler();
 
         state.wifi_status = hw::wifi_state_string();
 
-        uint8_t keys = hw::input_read_keys();
-        uint8_t pressed = keys & ~prev_keys;
-        if ((pressed & 0x01) && !state.statuses.empty()) {
+        // Apply any completed asynchronous refresh.
+        RefreshResult* result = nullptr;
+        if (xQueueReceive(refresh_result_queue, &result, 0) == pdTRUE) {
+            apply_refresh_result(ctx, result);
+            lv_refr_now(nullptr);  // Force immediate render of refreshed data.
+        }
+
+        uint8_t btn = hw::input_take_button_press();
+        if (btn == 1 && !state.statuses.empty()) {
             state.selected_account_index =
                 (state.selected_account_index + 1) % state.statuses.size();
             page.update();
         }
-        if (pressed & 0x02) {
+        if (btn == 2) {
             if (refresh_timer) lv_timer_reset(refresh_timer);
-            perform_refresh(ctx);
+            start_refresh(ctx);
+            lv_refr_now(nullptr);  // Force immediate render of loading state.
         }
-        prev_keys = keys;
 
         if (hw::web_server_take_config_saved_flag()) {
             handle_config_saved(ctx, cfg, client, refresh_timer);

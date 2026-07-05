@@ -85,6 +85,7 @@ idf.py build
 
 - `ArduinoJson/`（v7.3.0）
 - `lvgl/`（v9.2.2）
+- `MultiButton/`（[0x1abin/MultiButton](https://github.com/0x1abin/MultiButton)，用于按键消抖）
 
 通过 `hw_monitor/CMakeLists.txt` 中的 `EXTRA_COMPONENT_DIRS` 引入。
 
@@ -94,7 +95,7 @@ idf.py build
 
 - `board`：GPIO 初始化、LCD 硬件复位、按键上拉、蜂鸣器引脚默认低电平。
 - `display`：ST7735 160×128 SPI 驱动，软件 CS/DC，10 MHz，横屏 MADCTL=0xA0。
-- `input`：两个独立 LVGL 按钮输入设备（KEY1 GPIO34、KEY2 GPIO12，均低电平有效）。
+- `input`：两个独立 LVGL 按钮输入设备（KEY1 GPIO34、KEY2 GPIO12，均低电平有效），并通过 MultiButton 状态机进行硬件消抖。
 - `wifi`：STA + SmartConfig（ESPTouch），NVS 持久化存储 SSID/密码。
 - `web_server`：内置 HTTP 服务器，提供 RESTful JSON API 与 Svelte 前端。
 

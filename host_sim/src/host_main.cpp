@@ -26,6 +26,11 @@
 #include <thread>
 #include <chrono>
 #include <vector>
+#include <queue>
+#include <mutex>
+#include <condition_variable>
+#include <optional>
+#include <string>
 
 namespace {
 
@@ -44,7 +49,63 @@ struct AppContext {
     maiq::HttpClient* client = nullptr;
 };
 
-static void perform_refresh(AppContext& ctx) {
+struct RefreshResult {
+    std::vector<maiq::AccountStatus> statuses;
+    std::string error;
+    std::optional<std::time_t> refresh_at;
+};
+
+static std::queue<RefreshResult*> refresh_result_queue;
+static std::mutex refresh_mutex;
+static std::mutex refresh_queue_mutex;
+static std::condition_variable refresh_cv;
+
+static void apply_refresh_result(AppContext& ctx, RefreshResult* result) {
+    if (!result) return;
+    if (!ctx.state || !ctx.page) {
+        delete result;
+        return;
+    }
+
+    if (result->error.empty()) {
+        ctx.state->statuses = std::move(result->statuses);
+        ctx.state->last_refresh_at = result->refresh_at;
+        if (!ctx.state->statuses.empty() &&
+            ctx.state->selected_account_index >= ctx.state->statuses.size()) {
+            ctx.state->selected_account_index = 0;
+        }
+    } else {
+        ctx.state->last_error = std::move(result->error);
+    }
+
+    ctx.state->querying = false;
+    delete result;
+    ctx.page->update();
+}
+
+static void refresh_task(AppContext* ctx) {
+    auto* result = new RefreshResult();
+
+    {
+        std::lock_guard<std::mutex> lock(refresh_mutex);
+        if (ctx->client && ctx->cfg) {
+            try {
+                result->statuses = maiq::query_all_statuses(*ctx->client, ctx->cfg->accounts);
+                result->refresh_at = std::time(nullptr);
+            } catch (const std::exception& e) {
+                result->error = e.what();
+            }
+        }
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(refresh_queue_mutex);
+        refresh_result_queue.push(result);
+    }
+    refresh_cv.notify_one();
+}
+
+static void start_refresh(AppContext& ctx) {
     if (!ctx.state || !ctx.page || !ctx.cfg || !ctx.client) return;
     if (ctx.state->querying) return;
     if (ctx.cfg->accounts.empty()) return;
@@ -53,23 +114,12 @@ static void perform_refresh(AppContext& ctx) {
     ctx.state->last_error.clear();
     ctx.page->update();
 
-    try {
-        ctx.state->statuses = maiq::query_all_statuses(*ctx.client, ctx.cfg->accounts);
-        ctx.state->last_refresh_at = std::time(nullptr);
-        if (!ctx.state->statuses.empty() &&
-            ctx.state->selected_account_index >= ctx.state->statuses.size()) {
-            ctx.state->selected_account_index = 0;
-        }
-    } catch (const std::exception& e) {
-        ctx.state->last_error = e.what();
-    }
-    ctx.state->querying = false;
-    ctx.page->update();
+    std::thread(refresh_task, &ctx).detach();
 }
 
 static void refresh_timer_cb(lv_timer_t* t) {
     auto* ctx = static_cast<AppContext*>(lv_timer_get_user_data(t));
-    if (ctx) perform_refresh(*ctx);
+    if (ctx) start_refresh(*ctx);
 }
 
 static void cycle_timer_cb(lv_timer_t* t) {
@@ -188,7 +238,7 @@ int main(int argc, char** argv) {
     ctx.client = client.get();
 
     if (client) {
-        perform_refresh(ctx);
+        start_refresh(ctx);
     }
 
     lv_timer_t* cycle_timer = lv_timer_create(cycle_timer_cb, 10000, &ctx);
@@ -201,6 +251,16 @@ int main(int argc, char** argv) {
 #endif
     while (running) {
         uint32_t delay = lv_timer_handler();
+
+        // Apply any completed asynchronous refresh.
+        {
+            std::lock_guard<std::mutex> lock(refresh_queue_mutex);
+            while (!refresh_result_queue.empty()) {
+                RefreshResult* result = refresh_result_queue.front();
+                refresh_result_queue.pop();
+                apply_refresh_result(ctx, result);
+            }
+        }
 
 #if MAIQ_GUI_HOST_SAVE_SNAPSHOT
         if (!snapshot_done) {
@@ -228,7 +288,7 @@ int main(int argc, char** argv) {
                         break;
                     case SDLK_2:
                         if (refresh_timer) lv_timer_reset(refresh_timer);
-                        perform_refresh(ctx);
+                        start_refresh(ctx);
                         break;
                     default:
                         break;

@@ -1,5 +1,7 @@
 find_package(SDL2 REQUIRED)
 
+option(MAIQ_GUI_HOST_SAVE_SNAPSHOT "Save a PNG screenshot and exit" OFF)
+
 add_executable(maiq_gui_host src/host_main.cpp)
 
 target_include_directories(maiq_gui_host
@@ -19,3 +21,7 @@ target_link_libraries(maiq_gui_host
 )
 
 target_compile_features(maiq_gui_host PRIVATE cxx_std_20)
+
+if(MAIQ_GUI_HOST_SAVE_SNAPSHOT)
+    target_compile_definitions(maiq_gui_host PRIVATE MAIQ_GUI_HOST_SAVE_SNAPSHOT=1)
+endif()

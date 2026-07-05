@@ -67,6 +67,26 @@ std::string format_refresh_time(std::time_t t) {
     return std::string(buf);
 }
 
+static void refresh_icon_spin_cb(void* var, int32_t v) {
+    lv_obj_set_style_transform_rotation(static_cast<lv_obj_t*>(var), v, 0);
+}
+
+static void start_refresh_spin(lv_obj_t* icon) {
+    lv_anim_t a;
+    lv_anim_init(&a);
+    lv_anim_set_var(&a, icon);
+    lv_anim_set_exec_cb(&a, refresh_icon_spin_cb);
+    lv_anim_set_values(&a, 0, 3600);
+    lv_anim_set_duration(&a, 1000);
+    lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_start(&a);
+}
+
+static void stop_refresh_spin(lv_obj_t* icon) {
+    lv_anim_del(icon, refresh_icon_spin_cb);
+    lv_obj_set_style_transform_rotation(icon, 0, 0);
+}
+
 } // namespace
 
 void DashboardPage::create() {
@@ -172,6 +192,15 @@ void DashboardPage::create_footer() {
     lv_obj_set_style_text_font(footer_page_, &lv_font_montserrat_10, 0);
     lv_obj_set_style_text_color(footer_page_, lv_color_white(), 0);
 
+    footer_refresh_icon_ = lv_label_create(footer);
+    lv_label_set_text(footer_refresh_icon_, LV_SYMBOL_REFRESH);
+    lv_obj_set_size(footer_refresh_icon_, 10, 10);
+    lv_obj_set_style_text_align(footer_refresh_icon_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_font(footer_refresh_icon_, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_color(footer_refresh_icon_, COLOR_TEXT_DIM, 0);
+    lv_obj_set_style_transform_pivot_x(footer_refresh_icon_, 5, 0);
+    lv_obj_set_style_transform_pivot_y(footer_refresh_icon_, 5, 0);
+
     footer_time_ = lv_label_create(footer);
     lv_obj_set_style_text_font(footer_time_, &lv_font_montserrat_8, 0);
     lv_obj_set_style_text_color(footer_time_, COLOR_TEXT_DIM, 0);
@@ -185,15 +214,6 @@ void DashboardPage::update() {
     if (!cards_container_) return;
     lv_obj_clean(cards_container_);
 
-    if (state_.querying) {
-        lv_obj_t* lbl = lv_label_create(cards_container_);
-        lv_label_set_text(lbl, "Divining...");
-        lv_obj_set_style_text_color(lbl, COLOR_TEXT_DIM, 0);
-        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_12, 0);
-        lv_obj_center(lbl);
-        update_footer();
-        return;
-    }
     if (state_.statuses.empty()) {
         lv_obj_t* lbl = lv_label_create(cards_container_);
         lv_label_set_text(lbl, "No accounts.");
@@ -243,7 +263,7 @@ void DashboardPage::update_header() {
 }
 
 void DashboardPage::update_footer() {
-    if (!footer_dots_ || !footer_time_) return;
+    if (!footer_dots_ || !footer_time_ || !footer_refresh_icon_) return;
 
     lv_obj_clean(footer_dots_);
     size_t dot_count = state_.statuses.size();
@@ -267,9 +287,20 @@ void DashboardPage::update_footer() {
         lv_label_set_text(footer_page_, page_buf);
     }
 
+    if (state_.querying) {
+        if (!refresh_spinning_) {
+            start_refresh_spin(footer_refresh_icon_);
+            refresh_spinning_ = true;
+        }
+    } else {
+        if (refresh_spinning_) {
+            stop_refresh_spin(footer_refresh_icon_);
+            refresh_spinning_ = false;
+        }
+    }
+
     if (state_.last_refresh_at) {
-        std::string txt = std::string(LV_SYMBOL_REFRESH " ") + format_refresh_time(*state_.last_refresh_at);
-        lv_label_set_text(footer_time_, txt.c_str());
+        lv_label_set_text(footer_time_, format_refresh_time(*state_.last_refresh_at).c_str());
     } else {
         lv_label_set_text(footer_time_, "--:--");
     }

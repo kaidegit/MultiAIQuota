@@ -37,7 +37,10 @@ private:
     lv_obj_t* cards_container_ = nullptr;
     lv_obj_t* footer_dots_ = nullptr;
     lv_obj_t* footer_page_ = nullptr;
+    lv_obj_t* footer_refresh_icon_ = nullptr;
     lv_obj_t* footer_time_ = nullptr;
+
+    bool refresh_spinning_ = false;
 };
 
 } // namespace gui::pages

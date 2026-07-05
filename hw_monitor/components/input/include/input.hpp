@@ -7,9 +7,8 @@ namespace hw {
 // Initialize input devices (buttons, touch) and register them with LVGL.
 void input_init();
 
-// Bitmask of currently pressed hardware keys.
-// Bit 0 = KEY1 (next account), Bit 1 = KEY2 (refresh).
-// Active-low buttons are debounced internally.
-uint8_t input_read_keys();
+// Check and consume the next button press event.
+// Returns 0 if no event, 1 for KEY1 (next account / page), 2 for KEY2 (refresh).
+uint8_t input_take_button_press();
 
 } // namespace hw
