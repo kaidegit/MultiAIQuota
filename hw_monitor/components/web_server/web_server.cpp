@@ -96,9 +96,77 @@ static esp_err_t static_file_handler(httpd_req_t* req) {
     return ESP_OK;
 }
 
+static std::string config_to_masked_json(const maiq::Config& cfg) {
+    JsonDocument doc;
+    JsonArray arr = doc["accounts"].to<JsonArray>();
+    for (const auto& acc : cfg.accounts) {
+        JsonObject obj = arr.add<JsonObject>();
+        obj["name"] = acc.name;
+        obj["vendor"] = maiq::to_string(acc.vendor);
+        obj["mode"] = maiq::to_string(acc.mode);
+        obj["timeout_secs"] = acc.timeout_secs;
+        if (acc.base_url) obj["base_url"] = *acc.base_url;
+
+        std::visit([&](const auto& c) {
+            using T = std::decay_t<decltype(c)>;
+            if constexpr (std::is_same_v<T, maiq::BearerCredentials>) {
+                obj["auth_type"] = "bearer";
+                obj["api_key"] = maiq::mask_key(c.api_key);
+            } else if constexpr (std::is_same_v<T, maiq::VolcengineCredentials>) {
+                obj["auth_type"] = "volcengine";
+                obj["ak"] = maiq::mask_key(c.ak);
+                obj["sk"] = maiq::mask_key(c.sk);
+                obj["region"] = c.region;
+            } else if constexpr (std::is_same_v<T, maiq::NewApiCredentials>) {
+                obj["auth_type"] = "newapi";
+                obj["access_token"] = maiq::mask_key(c.access_token);
+                if (c.user_id) obj["user_id"] = *c.user_id;
+            } else if constexpr (std::is_same_v<T, maiq::CodexOAuthCredentials>) {
+                obj["auth_type"] = "codex_oauth";
+                obj["access_token"] = maiq::mask_key(c.access_token);
+                if (c.account_id) obj["account_id"] = *c.account_id;
+            }
+        }, acc.credentials);
+    }
+    std::string s;
+    serializeJson(doc, s);
+    return s;
+}
+
+static void merge_config_secrets(maiq::Config& incoming, const maiq::Config& existing) {
+    for (size_t i = 0; i < incoming.accounts.size() && i < existing.accounts.size(); ++i) {
+        auto& in_acc = incoming.accounts[i];
+        const auto& ex_acc = existing.accounts[i];
+        if (in_acc.credentials.index() != ex_acc.credentials.index()) continue;
+
+        std::visit([&](auto& in_c) {
+            using T = std::decay_t<decltype(in_c)>;
+            if (!std::holds_alternative<T>(ex_acc.credentials)) return;
+            const auto& ex_c = std::get<T>(ex_acc.credentials);
+            if constexpr (std::is_same_v<T, maiq::BearerCredentials>) {
+                if (in_c.api_key.empty()) in_c.api_key = ex_c.api_key;
+            } else if constexpr (std::is_same_v<T, maiq::VolcengineCredentials>) {
+                if (in_c.ak.empty()) in_c.ak = ex_c.ak;
+                if (in_c.sk.empty()) in_c.sk = ex_c.sk;
+                if (in_c.region.empty()) in_c.region = ex_c.region;
+            } else if constexpr (std::is_same_v<T, maiq::NewApiCredentials>) {
+                if (in_c.access_token.empty()) in_c.access_token = ex_c.access_token;
+                if (!in_c.user_id.has_value() && ex_c.user_id.has_value()) {
+                    in_c.user_id = ex_c.user_id;
+                }
+            } else if constexpr (std::is_same_v<T, maiq::CodexOAuthCredentials>) {
+                if (in_c.access_token.empty()) in_c.access_token = ex_c.access_token;
+                if (!in_c.account_id.has_value() && ex_c.account_id.has_value()) {
+                    in_c.account_id = ex_c.account_id;
+                }
+            }
+        }, in_acc.credentials);
+    }
+}
+
 static esp_err_t config_get_handler(httpd_req_t* req) {
     auto cfg = storage_load_config();
-    send_json(req, cfg.to_json_string());
+    send_json(req, config_to_masked_json(cfg));
     return ESP_OK;
 }
 
@@ -109,7 +177,9 @@ static esp_err_t config_post_handler(httpd_req_t* req) {
         return ESP_OK;
     }
     try {
+        auto existing = storage_load_config();
         auto cfg = maiq::Config::from_json_string(*body);
+        merge_config_secrets(cfg, existing);
         if (storage_save_config(cfg)) {
             g_config_saved.store(true);
             send_json_ok(req);
