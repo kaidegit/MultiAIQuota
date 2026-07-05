@@ -5,6 +5,7 @@
 #include "maiq/query.hpp"
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 
 namespace maiq {
@@ -39,7 +40,7 @@ int main() {
 
         const char* json = R"({
             "usage": {"limit": "100", "used": "48", "remaining": "52", "resetTime": "2026-06-30T04:00:00Z"},
-            "limits": [{"window": {"timeUnit": "MINUTE"}, "detail": {"limit": "100", "used": "7", "remaining": "93"}}]
+            "limits": [{"window": {"timeUnit": "minute"}, "detail": {"limit": "100", "used": "7", "remaining": "93"}}]
         })";
 
         MockHttpClient client(json);
@@ -49,6 +50,32 @@ int main() {
         assert(status.entries[0].name == "weekly");
         assert(status.entries[0].remaining == 52.0);
         assert(status.entries[1].name == "minute-window");
+    }
+
+    // Kimi coding plan parse test without explicit 'used' field
+    {
+        ProviderConfig cfg;
+        cfg.name = "test-kimi-no-used";
+        cfg.vendor = Vendor::Kimi;
+        cfg.mode = QueryMode::CodingPlan;
+        cfg.credentials = BearerCredentials{"sk-test"};
+        cfg.timeout_secs = 10;
+
+        const char* json = R"({
+            "usage": {"limit": "100", "remaining": "100", "resetTime": "2026-07-12T03:25:06.127488Z"},
+            "limits": [{"window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"}, "detail": {"limit": "100", "remaining": "100", "resetTime": "2026-07-05T11:25:06.127488Z"}}]
+        })";
+
+        MockHttpClient client(json);
+        auto status = query_one(client, cfg);
+        assert(status.is_valid);
+        assert(status.entries.size() == 2);
+        assert(status.entries[0].name == "weekly");
+        assert(status.entries[0].total == 100.0);
+        assert(status.entries[0].remaining == 100.0);
+        assert(status.entries[0].used == 0.0);
+        assert(status.entries[1].name == "TIME_UNIT_MINUTE-window");
+        assert(status.entries[1].used == 0.0);
     }
 
     // Kimi balance parse test
@@ -65,7 +92,7 @@ int main() {
         auto status = query_one(client, cfg);
         assert(status.is_valid);
         assert(status.entries.size() == 3);
-        assert(status.entries[0].remaining == 49.59);
+        assert(std::abs(status.entries[0].remaining.value() - 49.59) < 1e-6);
     }
 
     // Codex usage parse test

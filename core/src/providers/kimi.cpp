@@ -17,10 +17,15 @@ std::optional<QuotaEntry> parse_usage_object(const char* name, JsonObjectConst o
     auto limit = json_number(obj["limit"]);
     auto used = json_number(obj["used"]);
     auto remaining = json_number(obj["remaining"]);
-    if (!limit || !used || !remaining) return std::nullopt;
+    if (!limit || !remaining) return std::nullopt;
 
     QuotaEntry entry(name, "requests");
-    entry.with_total(*limit).with_used(*used).with_remaining(*remaining);
+    entry.with_total(*limit).with_remaining(*remaining);
+    if (used) {
+        entry.with_used(*used);
+    } else {
+        entry.with_used(*limit - *remaining);
+    }
     if (auto rt = json_reset_time(obj["resetTime"])) {
         entry.with_reset_at(*rt);
     }
