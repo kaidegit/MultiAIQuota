@@ -250,7 +250,7 @@ bool wifi_ensure_connected() {
                                                         nullptr));
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_MIN_MODEM));
     ESP_ERROR_CHECK(esp_wifi_start());
 
     // Try stored credentials first. STA_START will call apply_config_and_connect().

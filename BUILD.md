@@ -76,7 +76,9 @@ idf.py build
 - `sdkconfig.defaults`：通用选项（flash、CPU、C++ 异常/RTTI、自定义分区表、LVGL）。
 - `sdkconfig.defaults.esp32`：Xueersi 板默认配置。
 - `sdkconfig.defaults.esp32s3`：ESP32-S3 默认配置（启用 SPIRAM）。
+- 电源管理：已启用 `CONFIG_PM_ENABLE` 与 `CONFIG_FREERTOS_USE_TICKLESS_IDLE`，并在 `app.cpp` 中调用 `esp_pm_configure()` 开启 automatic light sleep。
 - LittleFS 组件：`hw_monitor/main/idf_component.yml` 依赖 `joltwallet/littlefs`。
+- 按键组件：`hw_monitor/main/idf_component.yml` 依赖 `espressif/button`（v4.2.0），由组件管理器自动下载。
 - LVGL 配置：`third_party/lv_conf.h`（ESP32，16-bit 颜色深度）。该文件位于 `lvgl` 目录之外，避免修改 `third_party/lvgl` 子仓库。
 
 ### 第三方组件
@@ -85,8 +87,6 @@ idf.py build
 
 - `ArduinoJson/`（v7.3.0）
 - `lvgl/`（v9.2.2）
-- `MultiButton/`（[0x1abin/MultiButton](https://github.com/0x1abin/MultiButton)，用于按键消抖）
-
 通过 `hw_monitor/CMakeLists.txt` 中的 `EXTRA_COMPONENT_DIRS` 引入。
 
 ## 硬件与网络说明
@@ -95,7 +95,7 @@ idf.py build
 
 - `board`：GPIO 初始化、LCD 硬件复位、按键上拉、蜂鸣器引脚默认低电平。
 - `display`：ST7735 160×128 SPI 驱动，软件 CS/DC，10 MHz，横屏 MADCTL=0xA0。
-- `input`：两个独立 LVGL 按钮输入设备（KEY1 GPIO34、KEY2 GPIO12，均低电平有效），并通过 MultiButton 状态机进行硬件消抖。
+- `input`：两个独立按钮输入设备（KEY1 GPIO34、KEY2 GPIO12，均低电平有效），使用 `espressif/button` 组件进行硬件消抖，并启用 `enable_power_save` 支持 light sleep 唤醒。
 - `wifi`：STA + SmartConfig（ESPTouch），NVS 持久化存储 SSID/密码。
 - `web_server`：内置 HTTP 服务器，提供 RESTful JSON API 与 Svelte 前端。
 

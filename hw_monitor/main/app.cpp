@@ -18,6 +18,7 @@
 #include "wifi.hpp"
 
 #include <esp_log.h>
+#include <esp_pm.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
@@ -93,7 +94,7 @@ struct RefreshResult {
 
 static QueueHandle_t refresh_result_queue = nullptr;
 static SemaphoreHandle_t refresh_mutex = nullptr;
-static constexpr uint32_t kMainLoopMaxDelayMs = 5;
+static constexpr uint32_t kMainLoopMaxDelayMs = 20;
 
 static const char* selected_account_name(const gui::AppState& state) {
     if (state.statuses.empty() || state.selected_account_index >= state.statuses.size()) {
@@ -298,7 +299,18 @@ void run() {
         return;
     }
 
+    esp_pm_config_t pm_cfg = {
+        .max_freq_mhz = 240,
+        .min_freq_mhz = 240,          // Fixed frequency avoids DFS affecting SPI
+        .light_sleep_enable = true,
+    };
+    esp_err_t pm_err = esp_pm_configure(&pm_cfg);
+    if (pm_err != ESP_OK) {
+        ESP_LOGE(TAG, "pm configure failed: %s", esp_err_to_name(pm_err));
+    }
+
     lv_init();
+
     lv_display_t* disp = hw::display_init();
     if (!disp) {
         ESP_LOGE(TAG, "display init failed");

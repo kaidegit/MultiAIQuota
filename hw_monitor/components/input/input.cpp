@@ -1,46 +1,31 @@
 #include "input.hpp"
 #include "board.hpp"
 
-#include "multi_button.h"
+#include "iot_button.h"
+#include "button_gpio.h"
 
 #include <driver/gpio.h>
 #include <esp_log.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
-#include <freertos/timers.h>
 
 namespace hw {
 
-namespace {
-
 static const char* TAG = "input";
 
-// Asynchronous button event passed from the MultiButton timer task to the
-// LVGL/main task via a FreeRTOS queue.
+// Asynchronous button event passed from the button component callback to the
+// main task via a FreeRTOS queue.
 struct ButtonEvent {
-    uint8_t button_id;
+    uint8_t button_id;  // 1 for KEY1, 2 for KEY2
 };
 
 static QueueHandle_t button_event_queue = nullptr;
-static TimerHandle_t button_tick_timer = nullptr;
+static button_handle_t btn1 = nullptr;
+static button_handle_t btn2 = nullptr;
 
-// MultiButton instances for KEY1 (next account) and KEY2 (refresh).
-Button btn1;
-Button btn2;
-
-uint8_t read_button_GPIO(uint8_t button_id) {
-    if (button_id == 0) {
-        return gpio_get_level(xueersi::PIN_KEY1) == 0 ? 0 : 1;
-    }
-    if (button_id == 1) {
-        return gpio_get_level(xueersi::PIN_KEY2) == 0 ? 0 : 1;
-    }
-    return 1;
-}
-
-void button_event_handler(Button* handle, void* user_data) {
-    (void)handle;
-    uint8_t id = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(user_data));
+static void button_event_cb(void* button_handle, void* usr_data) {
+    (void)button_handle;
+    uint8_t id = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(usr_data));
     ESP_LOGI(TAG, "button %u press down", id);
 
     ButtonEvent ev{id};
@@ -49,52 +34,36 @@ void button_event_handler(Button* handle, void* user_data) {
     }
 }
 
-static void button_tick_timer_cb(TimerHandle_t xTimer) {
-    (void)xTimer;
-    button_ticks();
-    // static int cnt = 0;
-    // cnt++;
-    // if (cnt % 100 == 0) {
-    //     for (int i = 0; i < 2; ++i) {
-    //         auto level = read_button_GPIO(i);
-    //         ESP_LOGI(TAG, "button %d level=%d", i, level);
-    //     }
-    // }
+static void create_button(gpio_num_t pin, button_handle_t* out, uint8_t id,
+                          bool disable_pull) {
+    button_config_t btn_cfg = {0};
+    button_gpio_config_t gpio_cfg = {
+        .gpio_num = pin,
+        .active_level = 0,        // active-low buttons
+        .enable_power_save = true,
+        .disable_pull = disable_pull,
+    };
+    ESP_ERROR_CHECK(iot_button_new_gpio_device(&btn_cfg, &gpio_cfg, out));
+    ESP_ERROR_CHECK(iot_button_register_cb(*out, BUTTON_PRESS_DOWN,
+                                           nullptr, button_event_cb,
+                                           reinterpret_cast<void*>(id)));
 }
 
-} // namespace
-
 void input_init() {
-    ESP_LOGI(TAG, "Initializing Xueersi buttons");
+    ESP_LOGI(TAG, "Initializing Xueersi buttons via espressif/button");
 
-    // Queue used to pass button events from the timer task to the LVGL task.
     button_event_queue = xQueueCreate(4, sizeof(ButtonEvent));
 
-    // MultiButton setup: active level 0 (active-low buttons).
-    button_init(&btn1, read_button_GPIO, 0, 0);
-    button_init(&btn2, read_button_GPIO, 0, 1);
-    button_attach(&btn1, BTN_PRESS_DOWN, button_event_handler, reinterpret_cast<void*>(0));
-    button_attach(&btn2, BTN_PRESS_DOWN, button_event_handler, reinterpret_cast<void*>(1));
-    
-    button_start(&btn1);
-    button_start(&btn2);
-
-    // 5 ms FreeRTOS software timer drives the MultiButton state machine.
-    button_tick_timer = xTimerCreate("btn_tick",
-                                     pdMS_TO_TICKS(5),
-                                     pdTRUE,
-                                     nullptr,
-                                     button_tick_timer_cb);
-    if (button_tick_timer) {
-        xTimerStart(button_tick_timer, 0);
-    }
+    // GPIO34 is input-only and has no internal pull-up; KEY2 (GPIO12) can use internal pull-up.
+    create_button(xueersi::PIN_KEY1, &btn1, 1, true);
+    create_button(xueersi::PIN_KEY2, &btn2, 2, false);
 }
 
 uint8_t input_take_button_press() {
     if (!button_event_queue) return 0;
     ButtonEvent ev;
     if (xQueueReceive(button_event_queue, &ev, 0) == pdTRUE) {
-        return ev.button_id + 1;  // 0 -> 1 (KEY1), 1 -> 2 (KEY2)
+        return ev.button_id;  // 1 for KEY1, 2 for KEY2
     }
     return 0;
 }
