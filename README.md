@@ -103,6 +103,19 @@ MultiAIQuota/
 
 构建目标使用 `esp32`，详情见 `BUILD.md`。
 
+### 烧录
+
+从actions处下载固件，使用https://espressif.github.io/esptool-js/，Program波特率选择115200，然后connect，选择gd32 cdc那个
+
+文件方面，添加以下文件及地址
+
+* 0x1000 bootloader.bin
+* 0x10000 MultiAIQuotaMonitor.bin
+* 0x8000 partition-table.bin
+* 0x310000 littlefs.bin
+
+然后点击program即可。
+
 ![xueersi](images/xueersi_esp32.jpg)
 
 ## 安全提示
