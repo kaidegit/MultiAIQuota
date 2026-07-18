@@ -92,7 +92,7 @@ MultiAIQuota/
 
 ## 硬件与 Web 配置
 
-`hw_monitor` 默认面向参考项目中的 **Xueersi ESP32** 板：
+`hw_monitor` 默认面向参考项目中的 **Xueersi ESP32** 板（学而思ESP32）：
 
 - 主控：ESP32-WROVER-B，4 MB flash，无 PSRAM
 - 屏幕：ST7735 160×128 SPI TFT
@@ -102,6 +102,8 @@ MultiAIQuota/
 - Web：内置 Svelte 前端 + RESTful API，首次配网后访问设备 IP 即可配置账户和查询
 
 构建目标使用 `esp32`，详情见 `BUILD.md`。
+
+![xueersi](images/xueersi_esp32.jpg)
 
 ## 安全提示
 
