@@ -94,7 +94,7 @@ MultiAIQuota/
 
 `hw_monitor` 默认面向参考项目中的 **Xueersi ESP32** 板（学而思ESP32）：
 
-- 主控：ESP32-WROVER-B，4 MB flash，无 PSRAM
+- 主控：ESP32-WROVER-B，4 MB flash，8M PSRAM
 - 屏幕：ST7735 160×128 SPI TFT
 - 按键：KEY1（GPIO34）、KEY2（GPIO12），低电平有效
 - 蜂鸣器：GPIO14（暂未使用）
