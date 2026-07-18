@@ -63,6 +63,8 @@ idf.py build
 idf.py -p /dev/cu.usbserial-xxx flash monitor
 ```
 
+`idf.py monitor` 默认使用 2000000 bps 的串口波特率（见 `sdkconfig.defaults` 中的 `CONFIG_ESP_CONSOLE_UART_BAUDRATE`）。
+
 如果你使用的是 ESP32-S3 开发板，可以改回：
 
 ```bash
@@ -73,7 +75,7 @@ idf.py build
 ### 关键配置
 
 - 分区表：`hw_monitor/partitions.csv`（4 MB flash，最后 512 KB 为 LittleFS）。
-- `sdkconfig.defaults`：通用选项（flash、CPU、C++ 异常/RTTI、自定义分区表、LVGL）。
+- `sdkconfig.defaults`：通用选项（flash、CPU、C++ 异常/RTTI、自定义分区表、LVGL）。其中 SPIRAM 已启用并设置 `CONFIG_SPIRAM_IGNORE_NOTFOUND=y`，以便在带 PSRAM 的模组上自动使用，同时在 Xueersi 板这种无 PSRAM 的硬件上也能正常启动。
 - `sdkconfig.defaults.esp32`：Xueersi 板默认配置。
 - `sdkconfig.defaults.esp32s3`：ESP32-S3 默认配置（启用 SPIRAM）。
 - 电源管理：已启用 `CONFIG_PM_ENABLE` 与 `CONFIG_FREERTOS_USE_TICKLESS_IDLE`，并在 `app.cpp` 中调用 `esp_pm_configure()` 开启 automatic light sleep。
@@ -95,7 +97,7 @@ idf.py build
 
 - `board`：GPIO 初始化、LCD 硬件复位、按键上拉、蜂鸣器引脚默认低电平。
 - `display`：ST7735 160×128 SPI 驱动，软件 CS/DC，10 MHz，横屏 MADCTL=0xA0。
-- `input`：两个独立按钮输入设备（KEY1 GPIO34、KEY2 GPIO12，均低电平有效），使用 `espressif/button` 组件进行硬件消抖，并启用 `enable_power_save` 支持 light sleep 唤醒。
+- `input`：两个独立按钮输入设备（KEY1 GPIO34、KEY2 GPIO12，均低电平有效）。KEY1 切换当前选中账户，KEY2 立即触发刷新。使用 `espressif/button` 组件进行硬件消抖，并启用 `enable_power_save` 支持 light sleep 唤醒。
 - `wifi`：STA + SmartConfig（ESPTouch），NVS 持久化存储 SSID/密码。
 - `web_server`：内置 HTTP 服务器，提供 RESTful JSON API 与 Svelte 前端。
 
@@ -104,7 +106,8 @@ idf.py build
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/api/health` | 设备存活 |
-| GET | `/api/config` | 获取账户配置 JSON |
+| GET | `/api/screenshot` | 获取当前屏幕 BMP 截图 |
+| GET | `/api/config` | 获取账户配置 JSON（密钥已脱敏） |
 | POST | `/api/config` | 保存账户配置 JSON |
 | GET | `/api/wifi/status` | Wi-Fi 状态 |
 | POST | `/api/wifi/connect` | 连接指定 Wi-Fi `{ssid,password}` |

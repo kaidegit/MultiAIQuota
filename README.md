@@ -94,9 +94,9 @@ MultiAIQuota/
 
 `hw_monitor` 默认面向参考项目中的 **Xueersi ESP32** 板（学而思ESP32）：
 
-- 主控：ESP32-WROVER-B，4 MB flash，8M PSRAM
+- 主控：ESP32-WROVER-B，4 MB flash，无 PSRAM
 - 屏幕：ST7735 160×128 SPI TFT
-- 按键：KEY1（GPIO34）、KEY2（GPIO12），低电平有效
+- 按键：KEY1（GPIO34）切换账户，KEY2（GPIO12）立即刷新，均低电平有效
 - 蜂鸣器：GPIO14（暂未使用）
 - 网络：STA + SmartConfig（ESPTouch）配网，Wi-Fi 凭据存 NVS
 - Web：内置 Svelte 前端 + RESTful API，首次配网后访问设备 IP 即可配置账户和查询
@@ -116,13 +116,27 @@ MultiAIQuota/
 
 然后点击program即可。
 
+### 配网
+
+使用esptouch
+
+![esptouch](images/esptouch.PNG)
+
+### 配置
+
+在你的路由器后台找到ip，或者从log中找到ip，然后访问它，选择账户配置，添加账户即可
+
+需要注意如果你的环境需要代理访问gpt，codex在这其实不怎么可用
+
+![webui](images/webui.png)
+
 ![xueersi](images/xueersi_esp32.jpg)
 
 ## 安全提示
 
 - 真实 API Key 只应放在本地 `maiq.json` 中。
 - CLI `list` 会对密钥做脱敏处理。
-- ESP32 上配置以明文 JSON 存放在 LittleFS，后续可启用 Flash 加密。
+- ESP32 上配置以 JSON blob 形式存放在 NVS 中，Web 前端静态文件存放在 LittleFS；后续可启用 Flash 加密。
 
 ## 许可证
 

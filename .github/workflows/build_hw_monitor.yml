@@ -46,5 +46,6 @@ jobs:
             hw_monitor/build/MultiAIQuotaMonitor.bin
             hw_monitor/build/bootloader/bootloader.bin
             hw_monitor/build/partition_table/partition-table.bin
+            hw_monitor/build/littlefs.bin
             hw_monitor/build/MultiAIQuotaMonitor.elf
             hw_monitor/build/MultiAIQuotaMonitor.map
