@@ -1,0 +1,48 @@
+name: Build hw_monitor
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build frontend
+        run: |
+          cd hw_monitor/frontend
+          npm ci
+          npm run build
+
+      - name: Build ESP-IDF firmware
+        uses: docker://espressif/idf:release-v5.5
+        with:
+          args: >
+            /bin/bash -c "
+            cd /github/workspace/hw_monitor &&
+            idf.py set-target esp32 &&
+            idf.py build
+            "
+
+      - name: Upload firmware artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hw_monitor-firmware
+          path: |
+            hw_monitor/build/MultiAIQuotaMonitor.bin
+            hw_monitor/build/bootloader/bootloader.bin
+            hw_monitor/build/partition_table/partition-table.bin
+            hw_monitor/build/MultiAIQuotaMonitor.elf
+            hw_monitor/build/MultiAIQuotaMonitor.map
