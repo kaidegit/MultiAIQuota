@@ -2,8 +2,6 @@
 
 多厂商 AI **Coding Plan / Token Plan / 余额** 查询工具（C++20）。
 
-本项目把 [MultiAIQuota-rs](https://github.com/farion1231/MultiAIQuota-rs) 用 C++ 重写，包含：
-
 - `core`：跨平台核心库（类型、配置、HTTP、Provider 解析）。
 - `cli`：命令行工具 `maiq`。
 - `host_sim`：PC 端 LVGL + SDL2 主机模拟器。
