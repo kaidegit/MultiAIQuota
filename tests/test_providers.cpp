@@ -52,6 +52,32 @@ int main() {
         assert(status.entries[1].name == "minute-window");
     }
 
+    // Kimi coding plan parse test when exhausted usage omits 'remaining'
+    {
+        ProviderConfig cfg;
+        cfg.name = "test-kimi-exhausted";
+        cfg.vendor = Vendor::Kimi;
+        cfg.mode = QueryMode::CodingPlan;
+        cfg.credentials = BearerCredentials{"sk-test"};
+        cfg.timeout_secs = 10;
+
+        const char* json = R"({
+            "usage": {"limit": "100", "used": "100", "resetTime": "2026-07-19T03:25:06.127488Z"},
+            "limits": [{"window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"}, "detail": {"limit": "100", "remaining": "100", "resetTime": "2026-07-19T00:25:06.127488Z"}}]
+        })";
+
+        MockHttpClient client(json);
+        auto status = query_one(client, cfg);
+        assert(status.is_valid);
+        assert(status.entries.size() == 2);
+        assert(status.entries[0].name == "weekly");
+        assert(status.entries[0].total == 100.0);
+        assert(status.entries[0].used == 100.0);
+        assert(status.entries[0].remaining == 0.0);
+        assert(status.entries[1].name == "TIME_UNIT_MINUTE-window");
+        assert(status.entries[1].remaining == 100.0);
+    }
+
     // Kimi coding plan parse test without explicit 'used' field
     {
         ProviderConfig cfg;
