@@ -103,7 +103,7 @@ MultiAIQuota/
 
 ### 烧录
 
-从actions处下载固件，使用https://espressif.github.io/esptool-js/，Program波特率选择115200，然后connect，选择gd32 cdc那个
+从actions处下载固件，使用https://espressif.github.io/esptool-js/ ，Program波特率选择115200，然后connect，选择gd32 cdc那个
 
 文件方面，添加以下文件及地址
 
