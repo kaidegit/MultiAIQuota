@@ -12,6 +12,9 @@ namespace maiq {
 
 struct BearerCredentials {
     std::string api_key;
+    // DeepSeek: optional web login token (from browser localStorage.userToken)
+    // used to query daily usage via the platform's internal API.
+    std::optional<std::string> web_token;
 };
 
 struct VolcengineCredentials {

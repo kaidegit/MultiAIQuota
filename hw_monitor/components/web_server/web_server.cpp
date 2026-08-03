@@ -112,6 +112,7 @@ static std::string config_to_masked_json(const maiq::Config& cfg) {
             if constexpr (std::is_same_v<T, maiq::BearerCredentials>) {
                 obj["auth_type"] = "bearer";
                 obj["api_key"] = maiq::mask_key(c.api_key);
+                if (c.web_token) obj["web_token"] = maiq::mask_key(*c.web_token);
             } else if constexpr (std::is_same_v<T, maiq::VolcengineCredentials>) {
                 obj["auth_type"] = "volcengine";
                 obj["ak"] = maiq::mask_key(c.ak);
@@ -145,6 +146,9 @@ static void merge_config_secrets(maiq::Config& incoming, const maiq::Config& exi
             const auto& ex_c = std::get<T>(ex_acc.credentials);
             if constexpr (std::is_same_v<T, maiq::BearerCredentials>) {
                 if (in_c.api_key.empty()) in_c.api_key = ex_c.api_key;
+                if ((!in_c.web_token || in_c.web_token->empty()) && ex_c.web_token && !ex_c.web_token->empty()) {
+                    in_c.web_token = ex_c.web_token;
+                }
             } else if constexpr (std::is_same_v<T, maiq::VolcengineCredentials>) {
                 if (in_c.ak.empty()) in_c.ak = ex_c.ak;
                 if (in_c.sk.empty()) in_c.sk = ex_c.sk;

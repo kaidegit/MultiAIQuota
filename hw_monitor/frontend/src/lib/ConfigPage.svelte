@@ -36,6 +36,7 @@
       base_url: '',
       auth_type: 'bearer',
       api_key: '',
+      web_token: '',
       ak: '',
       sk: '',
       region: 'cn-beijing',
@@ -51,7 +52,9 @@
   }
 
   function hasNewSecret(acc) {
-    if (acc.auth_type === 'bearer') return !!(acc.api_key && acc.api_key.trim());
+    if (acc.auth_type === 'bearer') {
+      return !!(acc.api_key && acc.api_key.trim()) || !!(acc.web_token && acc.web_token.trim());
+    }
     if (acc.auth_type === 'volcengine') {
       return !!(acc.ak && acc.ak.trim()) || !!(acc.sk && acc.sk.trim());
     }
@@ -102,6 +105,7 @@
 
       if (acc.auth_type === 'bearer') {
         if (shouldSendSecret) addSecret('api_key', acc.api_key);
+        if (acc.web_token && acc.web_token.trim()) base.web_token = acc.web_token.trim();
       } else if (acc.auth_type === 'volcengine') {
         if (shouldSendSecret) {
           addSecret('ak', acc.ak);
@@ -154,6 +158,7 @@
     // Clear secret fields so the form starts empty; user entered values
     // will be detected as new secrets, empty means keep existing.
     acc.api_key = '';
+    acc.web_token = '';
     acc.ak = '';
     acc.sk = '';
     acc.access_token = '';
@@ -309,6 +314,10 @@
           <label>
             API Key（留空保留原值）
             <input bind:value={editingAccount.api_key} />
+          </label>
+          <label>
+            DeepSeek 网页 Token（可选，留空保留原值；F12 控制台执行 <code>JSON.parse(localStorage.userToken).value</code> 复制）
+            <input bind:value={editingAccount.web_token} />
           </label>
         {:else if editingAccount.auth_type === 'volcengine'}
           <label>

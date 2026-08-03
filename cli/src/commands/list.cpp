@@ -25,6 +25,7 @@ std::string run_list(const Config& config) {
             using T = std::decay_t<decltype(c)>;
             if constexpr (std::is_same_v<T, BearerCredentials>) {
                 oss << "bearer: " << mask_key(c.api_key);
+                if (c.web_token && !c.web_token->empty()) oss << " +usage-token";
             } else if constexpr (std::is_same_v<T, VolcengineCredentials>) {
                 oss << "ak/sk: " << mask_key(c.ak);
             } else if constexpr (std::is_same_v<T, NewApiCredentials>) {

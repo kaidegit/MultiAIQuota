@@ -16,7 +16,8 @@ const char* EXAMPLE_CONFIG = R"({
       "vendor": "deepseek",
       "mode": "balance",
       "auth_type": "bearer",
-      "api_key": "sk-xxxxxxxx"
+      "api_key": "sk-xxxxxxxx",
+      "web_token": "可选：网页登录 token（浏览器 F12 控制台执行 JSON.parse(localStorage.userToken).value 复制），用于查询每日用量"
     },
     {
       "name": "my-codex",

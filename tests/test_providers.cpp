@@ -6,7 +6,12 @@
 
 #include <cassert>
 #include <cmath>
+#include <cstdio>
+#include <ctime>
 #include <iostream>
+#include <string>
+#include <utility>
+#include <vector>
 
 namespace maiq {
 
@@ -22,6 +27,32 @@ public:
 
 private:
     Response response_;
+};
+
+// Serves different responses depending on a URL substring, so a single
+// provider query that makes several requests (e.g. DeepSeek balance + usage)
+// can be tested with realistic per-endpoint bodies.
+class MockHttpClientByUrl : public HttpClient {
+public:
+    void add(std::string url_needle, std::string body, int status = 200) {
+        routes_.push_back(Route{std::move(url_needle), status, std::move(body)});
+    }
+
+    Response request(const std::string&, const std::string& url,
+                     const std::vector<std::pair<std::string, std::string>>&, const std::string&) override {
+        for (const auto& r : routes_) {
+            if (url.find(r.needle) != std::string::npos) return {r.status, r.body};
+        }
+        return {404, "no route matched"};
+    }
+
+private:
+    struct Route {
+        std::string needle;
+        int status;
+        std::string body;
+    };
+    std::vector<Route> routes_;
 };
 
 } // namespace maiq
@@ -187,6 +218,130 @@ int main() {
         assert(status.entries.size() == 2);
         assert(status.entries[0].name == "plan-plus");
         assert(status.entries[1].name == "credits-unlimited");
+    }
+
+    // DeepSeek balance + daily usage (web token) parse test
+    {
+        ProviderConfig cfg;
+        cfg.name = "test-deepseek-usage";
+        cfg.vendor = Vendor::DeepSeek;
+        cfg.mode = QueryMode::Balance;
+        BearerCredentials creds;
+        creds.api_key = "sk-test";
+        creds.web_token = "web-token-test";
+        cfg.credentials = std::move(creds);
+
+        std::time_t now = std::time(nullptr);
+        std::tm utc{};
+        gmtime_r(&now, &utc);
+        char today[16];
+        std::snprintf(today, sizeof(today), "%04d-%02d-%02d",
+                      utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday);
+
+        // Usage response: array of daily cost records, one of which is today.
+        std::string usage_json = std::string(R"({"biz_data": [{"date": ")") + today +
+                                R"(", "amount": "0.96"}]})";
+        const char* balance_json = R"({
+            "is_available": true,
+            "balance_infos": [{"currency": "CNY", "total_balance": "42.02",
+                               "granted_balance": "0.00", "topped_up_balance": "42.02"}]
+        })";
+
+        MockHttpClientByUrl client;
+        client.add("/user/balance", balance_json);
+        client.add("/api/v0/usage/cost", usage_json);
+
+        auto status = query_one(client, cfg);
+        assert(status.is_valid);
+        assert(status.entries.size() == 2);
+        assert(status.entries[0].name == "today-cost");
+        assert(std::abs(status.entries[0].used.value() - 0.96) < 1e-6);
+        assert(status.entries[1].name == "CNY");
+        assert(std::abs(status.entries[1].remaining.value() - 42.02) < 1e-6);
+    }
+
+    // DeepSeek usage with days keyed by date string
+    {
+        ProviderConfig cfg;
+        cfg.name = "test-deepseek-usage-keyed";
+        cfg.vendor = Vendor::DeepSeek;
+        cfg.mode = QueryMode::Balance;
+        BearerCredentials creds;
+        creds.api_key = "sk-test";
+        creds.web_token = "web-token-test";
+        cfg.credentials = std::move(creds);
+
+        std::time_t now = std::time(nullptr);
+        std::tm utc{};
+        gmtime_r(&now, &utc);
+        char today[16];
+        std::snprintf(today, sizeof(today), "%04d-%02d-%02d",
+                      utc.tm_year + 1900, utc.tm_mon + 1, utc.tm_mday);
+
+        std::string usage_json = std::string(R"({"biz_data": {"days": {")") + today +
+                                R"(": {"total": "1.50"}}}})";
+        const char* balance_json = R"({"is_available": true, "balance_infos": []})";
+
+        MockHttpClientByUrl client;
+        client.add("/user/balance", balance_json);
+        client.add("/api/v0/usage/cost", usage_json);
+
+        auto status = query_one(client, cfg);
+        assert(status.is_valid);
+        assert(status.entries.size() == 1);
+        assert(status.entries[0].name == "today-cost");
+        assert(std::abs(status.entries[0].used.value() - 1.50) < 1e-6);
+    }
+
+    // DeepSeek usage failure is non-fatal: account stays valid, today-cost
+    // slot is left empty ("-") while the balance is still reported
+    {
+        ProviderConfig cfg;
+        cfg.name = "test-deepseek-usage-fail";
+        cfg.vendor = Vendor::DeepSeek;
+        cfg.mode = QueryMode::Balance;
+        BearerCredentials creds;
+        creds.api_key = "sk-test";
+        creds.web_token = "expired-token";
+        cfg.credentials = std::move(creds);
+
+        const char* balance_json = R"({"is_available": true, "balance_infos": [{"currency": "CNY", "total_balance": "42.02"}]})";
+
+        MockHttpClientByUrl client;
+        client.add("/user/balance", balance_json);
+        client.add("/api/v0/usage/cost", "", 401);
+
+        auto status = query_one(client, cfg);
+        assert(status.is_valid);
+        assert(status.entries.size() == 2);
+        assert(status.entries[0].name == "today-cost");
+        assert(!status.entries[0].used.has_value());  // displayed as "-"
+        assert(status.entries[1].name == "CNY");
+        assert(std::abs(status.entries[1].remaining.value() - 42.02) < 1e-6);
+    }
+
+    // DeepSeek without web token: balance reported, today-cost slot empty
+    {
+        ProviderConfig cfg;
+        cfg.name = "test-deepseek-balance-only";
+        cfg.vendor = Vendor::DeepSeek;
+        cfg.mode = QueryMode::Balance;
+        BearerCredentials creds;
+        creds.api_key = "sk-test";
+        cfg.credentials = std::move(creds);
+
+        const char* balance_json = R"({"is_available": true, "balance_infos": [{"currency": "CNY", "total_balance": "8.88"}]})";
+
+        MockHttpClientByUrl client;
+        client.add("/user/balance", balance_json);
+
+        auto status = query_one(client, cfg);
+        assert(status.is_valid);
+        assert(status.entries.size() == 2);
+        assert(status.entries[0].name == "today-cost");
+        assert(!status.entries[0].used.has_value());
+        assert(status.entries[1].name == "CNY");
+        assert(std::abs(status.entries[1].total.value() - 8.88) < 1e-6);
     }
 
     std::cout << "All tests passed.\n";

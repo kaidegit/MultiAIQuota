@@ -49,6 +49,9 @@ ProviderConfig ProviderConfig::from_json(const JsonObjectConst& obj) {
     if (auth_type == "bearer") {
         BearerCredentials c;
         c.api_key = obj["api_key"] | "";
+        if (obj["web_token"].is<const char*>()) {
+            c.web_token = obj["web_token"].as<const char*>();
+        }
         cfg.credentials = std::move(c);
     } else if (auth_type == "volcengine") {
         VolcengineCredentials c;
@@ -88,6 +91,7 @@ void ProviderConfig::to_json(JsonObject& obj) const {
         if constexpr (std::is_same_v<T, BearerCredentials>) {
             obj["auth_type"] = "bearer";
             obj["api_key"] = c.api_key;
+            if (c.web_token) obj["web_token"] = *c.web_token;
         } else if constexpr (std::is_same_v<T, VolcengineCredentials>) {
             obj["auth_type"] = "volcengine";
             obj["ak"] = c.ak;
