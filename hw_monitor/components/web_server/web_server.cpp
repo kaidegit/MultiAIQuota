@@ -1,10 +1,15 @@
 #include "web_server.hpp"
 
 #include <ArduinoJson.h>
+#include <esp_heap_caps.h>
 #include <esp_http_server.h>
 #include <esp_log.h>
+#include <esp_ota_ops.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
 
 #include <atomic>
+#include <algorithm>
 
 #include "maiq/config.hpp"
 #include "maiq/query.hpp"
@@ -13,11 +18,10 @@
 #include "wifi.hpp"
 #include "display.hpp"
 #include "board.hpp"
+#include "www_store.hpp"
 
 #include <cstring>
-#include <fstream>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <vector>
 
@@ -26,7 +30,6 @@ namespace hw {
 namespace {
 
 static const char* TAG = "web_server";
-static const char* LITTLEFS_ROOT = "/littlefs";
 
 static std::atomic<bool> g_config_saved{false};
 
@@ -70,28 +73,24 @@ static const char* mime_type(const std::string& path) {
     return "application/octet-stream";
 }
 
-static std::string uri_to_path(const std::string& uri) {
-    if (uri == "/") return std::string(LITTLEFS_ROOT) + "/index.html";
-    return std::string(LITTLEFS_ROOT) + uri;
+static std::string uri_to_key(const std::string& uri) {
+    if (uri == "/") return "index.html";
+    return uri.substr(1); // strip leading '/'
 }
 
 static esp_err_t static_file_handler(httpd_req_t* req) {
-    std::string path = uri_to_path(req->uri);
-    std::ifstream f(path, std::ios::binary);
-    if (!f) {
+    std::string key = uri_to_key(req->uri);
+    std::string data;
+    if (!www_store_read(key.c_str(), data)) {
         // SPA fallback: return index.html for any non-API route.
-        path = std::string(LITTLEFS_ROOT) + "/index.html";
-        f.open(path, std::ios::binary);
-        if (!f) {
+        key = "index.html";
+        if (!www_store_read(key.c_str(), data)) {
             httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Not found");
             return ESP_FAIL;
         }
     }
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    std::string data = ss.str();
 
-    httpd_resp_set_type(req, mime_type(path));
+    httpd_resp_set_type(req, mime_type(key));
     httpd_resp_send(req, data.data(), data.size());
     return ESP_OK;
 }
@@ -290,6 +289,75 @@ static esp_err_t health_handler(httpd_req_t* req) {
     return ESP_OK;
 }
 
+// Firmware OTA: receives a compressed firmware image (.bin.xz.packed) and
+// writes it to the next OTA partition via the native esp_ota API. The custom
+// bootloader (bootloader_support_plus) decompresses it into ota_0 on reboot.
+static esp_err_t ota_handler(httpd_req_t* req) {
+    const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
+    if (!target) {
+        send_json_error(req, "no OTA partition available", 500);
+        return ESP_OK;
+    }
+
+    if (req->content_len <= 0 || static_cast<size_t>(req->content_len) > target->size) {
+        send_json_error(req, "invalid firmware size");
+        return ESP_OK;
+    }
+    const size_t total = static_cast<size_t>(req->content_len);
+
+    esp_ota_handle_t handle;
+    if (esp_ota_begin(target, OTA_SIZE_UNKNOWN, &handle) != ESP_OK) {
+        send_json_error(req, "OTA begin failed", 500);
+        return ESP_OK;
+    }
+
+    // Heap-allocated receive buffer (stack is limited in httpd handlers).
+    char* buf = static_cast<char*>(heap_caps_malloc(4096, MALLOC_CAP_8BIT));
+    if (!buf) {
+        esp_ota_abort(handle);
+        send_json_error(req, "out of memory", 500);
+        return ESP_OK;
+    }
+
+    size_t received = 0;
+    while (received < total) {
+        const size_t want = std::min<size_t>(4096, total - received);
+        int ret = httpd_req_recv(req, buf, want);
+        if (ret <= 0) {
+            ESP_LOGE(TAG, "OTA receive failed after %zu bytes", received);
+            esp_ota_abort(handle);
+            heap_caps_free(buf);
+            send_json_error(req, "receive failed", 400);
+            return ESP_OK;
+        }
+        if (esp_ota_write(handle, buf, static_cast<size_t>(ret)) != ESP_OK) {
+            ESP_LOGE(TAG, "OTA write failed at offset %zu", received);
+            esp_ota_abort(handle);
+            heap_caps_free(buf);
+            send_json_error(req, "OTA write failed", 500);
+            return ESP_OK;
+        }
+        received += static_cast<size_t>(ret);
+    }
+    heap_caps_free(buf);
+
+    if (esp_ota_end(handle) != ESP_OK) {
+        ESP_LOGE(TAG, "OTA image verification failed");
+        send_json_error(req, "image verification failed", 500);
+        return ESP_OK;
+    }
+    if (esp_ota_set_boot_partition(target) != ESP_OK) {
+        send_json_error(req, "set boot partition failed", 500);
+        return ESP_OK;
+    }
+
+    ESP_LOGI(TAG, "OTA accepted %zu bytes into %s, rebooting", received, target->label);
+    send_json(req, R"({"success":true,"restarting":true})");
+    vTaskDelay(pdMS_TO_TICKS(500)); // let the response flush
+    esp_restart();
+    return ESP_OK; // unreachable
+}
+
 static void bmp_header(uint8_t* out, uint32_t width, uint32_t height, uint32_t row_bytes) {
     const uint32_t image_size = row_bytes * height;
     const uint32_t file_size = 54 + image_size;
@@ -386,6 +454,7 @@ void web_server_start() {
         {"/api/wifi/connect",  HTTP_POST, wifi_connect_handler,  nullptr},
         {"/api/wifi/clear",    HTTP_POST, wifi_clear_handler,    nullptr},
         {"/api/query",         HTTP_POST, query_handler,         nullptr},
+        {"/api/ota",           HTTP_POST, ota_handler,           nullptr},
         {"/*",                 HTTP_GET,  static_file_handler,   nullptr},
     };
 

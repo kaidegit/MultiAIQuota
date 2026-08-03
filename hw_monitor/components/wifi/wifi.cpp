@@ -32,6 +32,9 @@ static bool s_credentials_loaded = false;
 static bool s_smartconfig_started = false;
 static bool s_initial_attempt = false;
 
+static wifi_state_change_cb_t s_state_cb = nullptr;
+static void* s_state_cb_data = nullptr;
+
 static const char* state_to_string(WifiState state) {
     switch (state) {
         case WifiState::Init: return "init";
@@ -47,6 +50,14 @@ static const char* state_to_string(WifiState state) {
 static void set_state(WifiState state) {
     s_state = state;
     ESP_LOGI(TAG, "state -> %s", state_to_string(state));
+    if (s_state_cb) {
+        s_state_cb(state, s_state_cb_data);
+    }
+}
+
+void wifi_set_state_change_cb(wifi_state_change_cb_t cb, void* user_data) {
+    s_state_cb = cb;
+    s_state_cb_data = user_data;
 }
 
 const char* wifi_state_string() {

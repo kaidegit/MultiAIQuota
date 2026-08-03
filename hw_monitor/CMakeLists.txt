@@ -12,3 +12,11 @@ set(EXTRA_COMPONENT_DIRS
 
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(MultiAIQuotaMonitor)
+
+# Provides the `idf.py gen_compressed_ota` target for xz-compressed OTA firmware.
+include(gen_compressed_ota)
+
+# Always generate the compressed OTA firmware as part of `idf.py build`.
+if(TARGET gen_compressed_ota)
+    set_target_properties(gen_compressed_ota PROPERTIES EXCLUDE_FROM_ALL FALSE)
+endif()

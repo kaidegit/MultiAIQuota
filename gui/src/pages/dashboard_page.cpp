@@ -416,11 +416,12 @@ lv_obj_t* DashboardPage::make_card(const char* title, const maiq::QuotaEntry& en
         }
         std::snprintf(value_buf, sizeof(value_buf), "%d%%", static_cast<int>(pct));
     } else {
+        std::string money_prefix = entry.unit.empty() ? "" : entry.unit + " ";
         if (entry.used) {
-            std::snprintf(value_buf, sizeof(value_buf), "%.1f", *entry.used);
+            std::snprintf(value_buf, sizeof(value_buf), "%s%.2f", money_prefix.c_str(), *entry.used);
             pct = (entry.total && *entry.total > 0) ? (*entry.used / *entry.total * 100.0) : 0.0;
         } else if (entry.remaining) {
-            std::snprintf(value_buf, sizeof(value_buf), "%.1f", *entry.remaining);
+            std::snprintf(value_buf, sizeof(value_buf), "%s%.2f", money_prefix.c_str(), *entry.remaining);
             pct = (entry.total && *entry.total > 0) ? (*entry.remaining / *entry.total * 100.0) : 0.0;
         } else {
             std::snprintf(value_buf, sizeof(value_buf), "-");
@@ -435,20 +436,22 @@ lv_obj_t* DashboardPage::make_card(const char* title, const maiq::QuotaEntry& en
     lv_obj_set_style_text_font(value, &lv_font_montserrat_22, 0);
     lv_obj_set_style_text_color(value, lv_color_white(), 0);
 
-    lv_obj_t* bar = lv_bar_create(card);
-    lv_obj_set_size(bar, 92, 7);
-    lv_obj_set_pos(bar, 60, 27);
-    lv_obj_set_style_radius(bar, 4, LV_PART_MAIN);
-    lv_obj_set_style_radius(bar, 4, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_color(bar, COLOR_BAR_BG, LV_PART_MAIN);
-    lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(bar, is_subscription ? COLOR_BAR_PINK : COLOR_BAR_GREEN, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_grad_color(bar, is_subscription ? COLOR_BAR_MAGENTA : COLOR_BAR_GREEN, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_grad_dir(bar, LV_GRAD_DIR_HOR, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_main_stop(bar, 28, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_grad_stop(bar, 220, LV_PART_INDICATOR);
-    lv_bar_set_value(bar, static_cast<int32_t>(pct), LV_ANIM_OFF);
+    if (is_subscription) {
+        lv_obj_t* bar = lv_bar_create(card);
+        lv_obj_set_size(bar, 92, 7);
+        lv_obj_set_pos(bar, 60, 27);
+        lv_obj_set_style_radius(bar, 4, LV_PART_MAIN);
+        lv_obj_set_style_radius(bar, 4, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_color(bar, COLOR_BAR_BG, LV_PART_MAIN);
+        lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
+        lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, LV_PART_MAIN);
+        lv_obj_set_style_bg_color(bar, is_subscription ? COLOR_BAR_PINK : COLOR_BAR_GREEN, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_grad_color(bar, is_subscription ? COLOR_BAR_MAGENTA : COLOR_BAR_GREEN, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_grad_dir(bar, LV_GRAD_DIR_HOR, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_main_stop(bar, 28, LV_PART_INDICATOR);
+        lv_obj_set_style_bg_grad_stop(bar, 220, LV_PART_INDICATOR);
+        lv_bar_set_value(bar, static_cast<int32_t>(pct), LV_ANIM_OFF);
+    }
 
     return card;
 }

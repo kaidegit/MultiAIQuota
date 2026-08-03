@@ -35,6 +35,15 @@ void wifi_clear_credentials();
 WifiState wifi_state();
 const char* wifi_state_string();
 
+// Optional callback invoked whenever the Wi-Fi state changes. Async
+// transitions (connect/disconnect/IP events) are delivered from the ESP
+// event loop task context; do not call LVGL or other task-bound code there
+// without appropriate synchronization.
+typedef void (*wifi_state_change_cb_t)(WifiState state, void* user_data);
+
+// Register (or clear with nullptr) a state-change callback.
+void wifi_set_state_change_cb(wifi_state_change_cb_t cb, void* user_data);
+
 // SSID of the currently configured/stored network (empty if none).
 const char* wifi_ssid();
 

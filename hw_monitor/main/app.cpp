@@ -16,6 +16,7 @@
 #include "time_sync.hpp"
 #include "web_server.hpp"
 #include "wifi.hpp"
+#include "www_store.hpp"
 
 #include <esp_log.h>
 #include <esp_pm.h>
@@ -332,6 +333,18 @@ void run() {
         return;
     }
 
+    // Show a dedicated hint while SmartConfig (ESPTouch) waits for the phone
+    // app to broadcast SSID/password. The SmartConfig transition is delivered
+    // synchronously from the caller's task (start_smartconfig), so updating
+    // LVGL here is safe.
+    hw::wifi_set_state_change_cb(
+        [](hw::WifiState state, void* user_data) {
+            if (state == hw::WifiState::SmartConfig) {
+                auto* splash = static_cast<SplashScreen*>(user_data);
+                splash_set_status(*splash, "Waiting ESPTouch app...");
+            }
+        },
+        &splash);
     splash_set_status(splash, "Connecting Wi-Fi...");
     if (!hw::wifi_ensure_connected()) {
         ESP_LOGW(TAG, "wifi not connected");
@@ -341,6 +354,9 @@ void run() {
     }
 
     splash_set_status(splash, "Starting web server...");
+    if (!hw::www_store_init()) {
+        ESP_LOGW(TAG, "www store init failed, static assets unavailable");
+    }
     hw::web_server_start();
 
     splash_set_status(splash, "Loading config...");

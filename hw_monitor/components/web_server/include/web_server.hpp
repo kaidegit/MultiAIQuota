@@ -2,8 +2,9 @@
 
 namespace hw {
 
-// Start the built-in HTTP server. Serves the Svelte frontend from LittleFS
-// and exposes RESTful API endpoints for Wi-Fi, config, and querying.
+// Start the built-in HTTP server. Serves the Svelte frontend from the
+// in-memory www store (PSRAM) and exposes RESTful API endpoints for Wi-Fi,
+// config, querying, and firmware OTA.
 void web_server_start();
 
 // Returns true once after the configuration has been saved through the web UI,

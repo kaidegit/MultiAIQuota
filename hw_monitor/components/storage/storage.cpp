@@ -1,6 +1,5 @@
 #include "storage.hpp"
 
-#include <esp_littlefs.h>
 #include <esp_log.h>
 #include <nvs_flash.h>
 #include <nvs.h>
@@ -19,21 +18,6 @@ bool storage_init() {
     }
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "NVS init failed: %s", esp_err_to_name(ret));
-        return false;
-    }
-
-    esp_vfs_littlefs_conf_t conf = {
-        .base_path = "/littlefs",
-        .partition_label = "littlefs",
-        .partition = nullptr,
-        .format_if_mount_failed = true,
-        .read_only = false,
-        .dont_mount = false,
-        .grow_on_mount = false,
-    };
-    ret = esp_vfs_littlefs_register(&conf);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "LittleFS register failed: %s", esp_err_to_name(ret));
         return false;
     }
     return true;

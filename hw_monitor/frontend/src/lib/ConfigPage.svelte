@@ -315,10 +315,12 @@
             API Key（留空保留原值）
             <input bind:value={editingAccount.api_key} />
           </label>
-          <label>
-            DeepSeek 网页 Token（可选，留空保留原值；F12 控制台执行 <code>JSON.parse(localStorage.userToken).value</code> 复制）
-            <input bind:value={editingAccount.web_token} />
-          </label>
+          {#if editingAccount.vendor === 'deepseek'}
+            <label>
+              DeepSeek 网页 Token（可选，留空保留原值；F12 控制台执行 <code>JSON.parse(localStorage.userToken).value</code> 复制）
+              <input bind:value={editingAccount.web_token} />
+            </label>
+          {/if}
         {:else if editingAccount.auth_type === 'volcengine'}
           <label>
             AK（留空保留原值）

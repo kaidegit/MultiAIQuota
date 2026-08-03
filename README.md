@@ -92,12 +92,14 @@ MultiAIQuota/
 
 `hw_monitor` 默认面向参考项目中的 **Xueersi ESP32** 板（学而思ESP32）：
 
-- 主控：ESP32-WROVER-B，4 MB flash，无 PSRAM
+- 主控：ESP32-WROVER，4 MB flash，8 MB PSRAM（按 4 MB 使用）
 - 屏幕：ST7735 160×128 SPI TFT
 - 按键：KEY1（GPIO34）切换账户，KEY2（GPIO12）立即刷新，均低电平有效
 - 蜂鸣器：GPIO14（暂未使用）
 - 网络：STA + SmartConfig（ESPTouch）配网，Wi-Fi 凭据存 NVS
-- Web：内置 Svelte 前端 + RESTful API，首次配网后访问设备 IP 即可配置账户和查询
+- Web：内置 Svelte 前端 + RESTful API，首次配网后访问设备 IP 即可配置账户、查询和升级固件
+
+前端页面打包为 `www.tar.gz` 嵌入固件，启动时解压到 PSRAM 内存文件索引中提供 Web 服务（无 flash 文件系统分区）。固件通过 Web 页面的「升级」标签上传压缩固件（`.bin.xz.packed`）完成 OTA，详见 `BUILD.md`。
 
 构建目标使用 `esp32`，详情见 `BUILD.md`。
 
@@ -105,14 +107,16 @@ MultiAIQuota/
 
 从actions处下载固件，使用https://espressif.github.io/esptool-js/ ，Program波特率选择115200，然后connect，选择gd32 cdc那个
 
-文件方面，添加以下文件及地址
+文件方面，添加以下文件及地址（新分区表：ota_0 + ota_1，无 LittleFS）：
 
 * 0x1000 bootloader.bin
-* 0x10000 MultiAIQuotaMonitor.bin
-* 0x8000 partition-table.bin
-* 0x310000 littlefs.bin
+* 0x10000 partition-table.bin
+* 0x17000 ota_data_initial.bin
+* 0x20000 MultiAIQuotaMonitor.bin
 
 然后点击program即可。
+
+> 首次烧录后如需升级，直接在 Web 页面「升级」标签上传 `MultiAIQuotaMonitor.bin.xz.packed`（由 `idf.py gen_compressed_ota` 生成）。
 
 ### 配网
 
@@ -134,7 +138,7 @@ MultiAIQuota/
 
 - 真实 API Key 只应放在本地 `maiq.json` 中。
 - CLI `list` 会对密钥做脱敏处理。
-- ESP32 上配置以 JSON blob 形式存放在 NVS 中，Web 前端静态文件存放在 LittleFS；后续可启用 Flash 加密。
+- ESP32 上配置以 JSON blob 形式存放在 NVS 中，Web 前端静态文件嵌入固件、运行时解压到 PSRAM；后续可启用 Flash 加密。
 
 ## 许可证
 

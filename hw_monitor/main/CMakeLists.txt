@@ -17,9 +17,6 @@ idf_component_register(
         web_server
         storage
         board
+        www_store
         nvs_flash
 )
-
-# Pack the built Svelte frontend into the LittleFS partition image.
-# Run `npm run build` in hw_monitor/frontend first to populate ../www.
-littlefs_create_partition_image(littlefs ${CMAKE_CURRENT_SOURCE_DIR}/../www FLASH_IN_PROJECT)

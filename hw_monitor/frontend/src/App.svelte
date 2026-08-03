@@ -5,6 +5,7 @@
   import ConfigPage from './lib/ConfigPage.svelte';
   import QueryPage from './lib/QueryPage.svelte';
   import ScreenPage from './lib/ScreenPage.svelte';
+  import OtaPage from './lib/OtaPage.svelte';
 </script>
 
 <main>
@@ -14,6 +15,7 @@
     <button class:active={tab === 'config'} onclick={() => tab = 'config'}>账户配置</button>
     <button class:active={tab === 'query'} onclick={() => tab = 'query'}>查询</button>
     <button class:active={tab === 'screen'} onclick={() => tab = 'screen'}>屏幕</button>
+    <button class:active={tab === 'ota'} onclick={() => tab = 'ota'}>升级</button>
   </nav>
 
   <section>
@@ -23,8 +25,10 @@
       <ConfigPage />
     {:else if tab === 'query'}
       <QueryPage />
-    {:else}
+    {:else if tab === 'screen'}
       <ScreenPage />
+    {:else}
+      <OtaPage />
     {/if}
   </section>
 </main>

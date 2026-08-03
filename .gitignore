@@ -31,6 +31,7 @@ dependencies.lock
 hw_monitor/frontend/node_modules/
 hw_monitor/frontend/dist/
 hw_monitor/www/
+hw_monitor/www.tar.gz
 
 # Live integration test config (contains real API keys)
 tests/live_config.json

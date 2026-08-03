@@ -31,12 +31,12 @@ cmake --build build -j
 
 ## Web 前端
 
-前端使用 Svelte + Vite，源码在 `hw_monitor/frontend/`，构建产物输出到 `hw_monitor/www/`，随 LittleFS 一起烧录。
+前端使用 Svelte + Vite，源码在 `hw_monitor/frontend/`。构建产物输出到 `hw_monitor/www/`，并由 `scripts/pack_www.mjs` 打包为 `hw_monitor/www.tar.gz`（ustar + gzip level 9，可被 macOS Keka 与 ESP32 ROM miniz 解压），随固件嵌入。
 
 ```bash
 cd /Volumes/aigo_1t/Github/MultiAIQuota/hw_monitor/frontend
 npm install
-npm run build
+npm run build        # vite build + 打包 www.tar.gz
 ```
 
 每次修改前端后都需要重新 `npm run build`，再重新构建并烧录 ESP32 固件。
@@ -49,38 +49,46 @@ npm run build
 cd /Volumes/aigo_1t/Github/MultiAIQuota
 . /Volumes/aigo_1t/DevPkgs/esp/esp-idf_5.5/export.sh
 
-# 1. 构建前端（必须先做，否则 LittleFS 里没有页面）
+# 1. 构建前端（必须先做，否则 www.tar.gz 不存在）
 cd hw_monitor/frontend
 npm install
 npm run build
 cd ..
 
-# 2. 参考 Xueersi 板为经典 ESP32（ESP32-WROVER-B，4 MB flash，无 PSRAM）
+# 2. 参考 Xueersi 板为经典 ESP32（ESP32-WROVER，4 MB flash，8 MB PSRAM）
 idf.py set-target esp32
 idf.py build
 
-# 3. 烧录（替换 PORT）
+# 3. 首次烧录：分区表已变更（ota_0 + ota_1，无 factory/LittleFS），需全量擦除
+idf.py -p /dev/cu.usbserial-xxx erase-flash
 idf.py -p /dev/cu.usbserial-xxx flash monitor
 ```
 
 `idf.py monitor` 默认使用 2000000 bps 的串口波特率（见 `sdkconfig.defaults` 中的 `CONFIG_ESP_CONSOLE_UART_BAUDRATE`）。
 
-如果你使用的是 ESP32-S3 开发板，可以改回：
+### 固件 OTA（压缩固件）
+
+固件支持通过 Web 页面的「升级」标签页上传压缩固件（`build/custom_ota_binaries/MultiAIQuotaMonitor.bin.xz.packed`），设备重启后由自定义 bootloader 解压并切换分区。
 
 ```bash
-idf.py set-target esp32s3
-idf.py build
+# 压缩固件在每次 idf.py build 时自动生成；也可单独执行
+idf.py gen_compressed_ota
 ```
+
+产物 `build/custom_ota_binaries/MultiAIQuotaMonitor.bin.xz.packed`（约 900KB，小于 ota_1 分区 1.25MB）。
+
+> 注意：压缩升级不可回滚（bootloader_support_plus 双分区方案限制），升级前请确认压缩固件可用。
 
 ### 关键配置
 
-- 分区表：`hw_monitor/partitions.csv`（4 MB flash，最后 512 KB 为 LittleFS）。
-- `sdkconfig.defaults`：通用选项（flash、CPU、C++ 异常/RTTI、自定义分区表、LVGL）。其中 SPIRAM 已启用并设置 `CONFIG_SPIRAM_IGNORE_NOTFOUND=y`，以便在带 PSRAM 的模组上自动使用，同时在 Xueersi 板这种无 PSRAM 的硬件上也能正常启动。
+- 分区表：`hw_monitor/partitions.csv`（4 MB flash）：`nvs` + `otadata` + `phy_init` + `ota_0`(2.5MB 标准固件) + `ota_1`(1.25MB 压缩固件)，**无 factory/LittleFS 分区**。
+- 自定义 bootloader：`hw_monitor/bootloader_components/`（基于 IDF `bootloader_start.c`，集成 `espressif/bootloader_support_plus`，启动时解压压缩固件到 ota_0）。
+- `sdkconfig.defaults`：通用选项（flash、CPU、C++ 异常/RTTI、自定义分区表、LVGL、SPIRAM）。
 - `sdkconfig.defaults.esp32`：Xueersi 板默认配置。
 - `sdkconfig.defaults.esp32s3`：ESP32-S3 默认配置（启用 SPIRAM）。
 - 电源管理：已启用 `CONFIG_PM_ENABLE` 与 `CONFIG_FREERTOS_USE_TICKLESS_IDLE`，并在 `app.cpp` 中调用 `esp_pm_configure()` 开启 automatic light sleep。
-- LittleFS 组件：`hw_monitor/main/idf_component.yml` 依赖 `joltwallet/littlefs`。
-- 按键组件：`hw_monitor/main/idf_component.yml` 依赖 `espressif/button`（v4.2.0），由组件管理器自动下载。
+- Web 静态资源：`hw_monitor/components/www_store/` 组件——`www.tar.gz` 通过 `EMBED_FILES` 嵌入固件，启动时用 ESP32 ROM miniz（tinfl，堆分配缓冲）解压到 PSRAM 并建立内存文件索引，`web_server` 直接读取，无 flash 文件系统。
+- 组件依赖：`hw_monitor/main/idf_component.yml` 依赖 `espressif/button`、`espressif/bootloader_support_plus`、`espressif/cmake_utilities`，由组件管理器自动下载。
 - LVGL 配置：`third_party/lv_conf.h`（ESP32，16-bit 颜色深度）。该文件位于 `lvgl` 目录之外，避免修改 `third_party/lvgl` 子仓库。
 
 ### 第三方组件
@@ -99,7 +107,7 @@ idf.py build
 - `display`：ST7735 160×128 SPI 驱动，软件 CS/DC，10 MHz，横屏 MADCTL=0xA0。
 - `input`：两个独立按钮输入设备（KEY1 GPIO34、KEY2 GPIO12，均低电平有效）。KEY1 切换当前选中账户，KEY2 立即触发刷新。使用 `espressif/button` 组件进行硬件消抖，并启用 `enable_power_save` 支持 light sleep 唤醒。
 - `wifi`：STA + SmartConfig（ESPTouch），NVS 持久化存储 SSID/密码。
-- `web_server`：内置 HTTP 服务器，提供 RESTful JSON API 与 Svelte 前端。
+- `web_server`：内置 HTTP 服务器，提供 RESTful JSON API、Svelte 前端与固件 OTA。
 
 ### RESTful API
 
@@ -113,6 +121,7 @@ idf.py build
 | POST | `/api/wifi/connect` | 连接指定 Wi-Fi `{ssid,password}` |
 | POST | `/api/wifi/clear` | 清除 Wi-Fi 凭据并断开 |
 | POST | `/api/query` | 使用当前配置触发查询 |
+| POST | `/api/ota` | 上传压缩固件（`.bin.xz.packed`）并重启升级 |
 
 访问设备 IP 即加载前端页面。
 
